@@ -154,8 +154,26 @@ https://tekton.dev/docs/getting-started/
 Buildpacks: https://buildpacks.io/docs/tools/tekton/
 
 
-```
-# Tekton Pipelines
-kubectl apply --filename https://storage.googleapis.com/tekton-releases/pipeline/latest/release.yaml
+### Tekton Pipelines
+
+https://tekton.dev/docs/getting-started/#installation
+
+So let's add the installation and wait for Tekton to become available:
+
+```yaml
+...
+      - name: Install Tekton Pipelines
+        run: kubectl apply --filename https://storage.googleapis.com/tekton-releases/pipeline/latest/release.yaml
+
+      - name: Wait for Tekton to become ready & show running Tekton pods
+        run: |
+          kubectl wait --for=condition=ready pod -l app=tekton-pipelines-controller --namespace tekton-pipelines
+          kubectl get pods --namespace tekton-pipelines
 ```
 
+### Persistent Volumes
+
+https://tekton.dev/docs/getting-started/#persistent-volumes
+
+
+Dashboard, Triggers, commit-status-tracker...
