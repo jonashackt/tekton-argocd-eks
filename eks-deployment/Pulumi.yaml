@@ -1,0 +1,3 @@
+name: tekton-flux-eks-pulumi
+runtime: nodejs
+description: Provisioning a AWS EKS cluster
