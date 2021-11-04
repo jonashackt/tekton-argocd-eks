@@ -151,4 +151,11 @@ I needed to define the `AWS_DEFAULT_REGION: 'eu-central-1'` also solely for `kub
 
 https://tekton.dev/docs/getting-started/
 
+Buildpacks: https://buildpacks.io/docs/tools/tekton/
+
+
+```
+# Tekton Pipelines
+kubectl apply --filename https://storage.googleapis.com/tekton-releases/pipeline/latest/release.yaml
+```
 
