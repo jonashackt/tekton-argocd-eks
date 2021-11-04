@@ -45,11 +45,12 @@ jobs:
           pulumi preview
           echo "lets use --suppress-outputs here in order to prevent Pulumi from logging the kubeconfig into public GitHub Action logs"
           pulumi up --yes --suppress-outputs
-          pulumi stack output kubeconfig > kubeconfig.yml
+          pulumi stack output kubeconfig > ~/.kube/config
           echo "::set-output name=eks_url::$(pulumi stack output eksUrl)/api/hello"
         working-directory: ./eks-deployment
 
       - name: Try to connect to our EKS cluster using kubectl
-        run: kubectl --kubeconfig kubeconfig.yml get nodes
-        working-directory: ./eks-deployment
+        run: kubectl get nodes
 
+      - name: Install Tekton Pipelines
+        run: kubectl apply --filename https://storage.googleapis.com/tekton-releases/pipeline/latest/release.yaml
