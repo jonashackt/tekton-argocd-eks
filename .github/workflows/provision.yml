@@ -32,7 +32,7 @@ jobs:
 
       - name: Install Pulumi dependencies before npm run generate to prevent it from breaking the build
         run: npm install
-        working-directory: ./deployment
+        working-directory: ./eks-deployment
 
       - name: Install Pulumi CLI
         uses: pulumi/action-install-pulumi-cli@v2.0.0
@@ -46,7 +46,7 @@ jobs:
           pulumi up --yes --suppress-outputs
           pulumi stack output kubeconfig > kubeconfig.yml
           echo "::set-output name=eks_url::$(pulumi stack output serveraddress)/api/hello"
-        working-directory: ./deployment
+        working-directory: ./eks-deployment
 
       - name: Try to connect to our EKS cluster using kubectl
         run: KUBECONFIG=./kubeconfig.yml kubectl get nodes

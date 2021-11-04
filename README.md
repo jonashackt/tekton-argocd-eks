@@ -47,7 +47,7 @@ First we need to create GitHub repository secrets containing our AWS API key id 
 Our [provision.yml](.github/workflows/provision.yml) workflow uses Pulumi like we did locally:
 
 ```yaml
-name: build-publish-deploy
+name: provision
 
 on: [push]
 
@@ -81,7 +81,7 @@ jobs:
 
       - name: Install Pulumi dependencies before npm run generate to prevent it from breaking the build
         run: npm install
-        working-directory: ./deployment
+        working-directory: ./eks-deployment
 
       - name: Install Pulumi CLI
         uses: pulumi/action-install-pulumi-cli@v2.0.0
@@ -94,11 +94,13 @@ jobs:
           echo "lets use --suppress-outputs here in order to prevent Pulumi from logging the kubeconfig into public GitHub Action logs"
           pulumi up --yes --suppress-outputs
           pulumi stack output kubeconfig > kubeconfig.yml
-          echo "::set-output name=eks_url::$(pulumi stack output eksUrl)/api/hello"
-        working-directory: ./deployment
-        
+          echo "::set-output name=eks_url::$(pulumi stack output serveraddress)/api/hello"
+        working-directory: ./eks-deployment
+
       - name: Try to connect to our EKS cluster using kubectl
         run: KUBECONFIG=./kubeconfig.yml kubectl get nodes
+
+
 ```
 
 Mind to use `--suppress-outputs` flag for our `pulumi up` to prevent the `kubeconfig` from getting logged unmasked. 
