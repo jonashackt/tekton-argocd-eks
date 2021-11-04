@@ -50,4 +50,5 @@ jobs:
 
       - name: Try to connect to our EKS cluster using kubectl
         run: KUBECONFIG=./kubeconfig.yml kubectl get nodes
+        working-directory: ./eks-deployment
 

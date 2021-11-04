@@ -31,7 +31,7 @@ const cluster = new eks.Cluster("eks-for-tekton");
 
 // Export the cluster's kubeconfig.
 export const kubeconfig = cluster.kubeconfig;
-export const serveraddress = cluster.eksCluster.endpoint;
+export const eksUrl = cluster.eksCluster.endpoint;
 ```
 
 
@@ -94,11 +94,12 @@ jobs:
           echo "lets use --suppress-outputs here in order to prevent Pulumi from logging the kubeconfig into public GitHub Action logs"
           pulumi up --yes --suppress-outputs
           pulumi stack output kubeconfig > kubeconfig.yml
-          echo "::set-output name=eks_url::$(pulumi stack output serveraddress)/api/hello"
+          echo "::set-output name=eks_url::$(pulumi stack output eksUrl)/api/hello"
         working-directory: ./eks-deployment
 
       - name: Try to connect to our EKS cluster using kubectl
         run: KUBECONFIG=./kubeconfig.yml kubectl get nodes
+        working-directory: ./eks-deployment
 
 
 ```
