@@ -58,5 +58,5 @@ jobs:
 
       - name: Wait for Tekton to become ready & show running Tekton pods
         run: |
-          kubectl wait --for=condition=ready pod -l app=tekton-pipelines-controller
+          kubectl wait --for=condition=ready pod -l app=tekton-pipelines-controller --namespace tekton-pipelines
           kubectl get pods --namespace tekton-pipelines
