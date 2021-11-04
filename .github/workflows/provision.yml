@@ -12,7 +12,7 @@ jobs:
       AWS_DEFAULT_REGION: 'eu-central-1'
     # Create an GitHub environment referencing our EKS cluster endpoint
     environment:
-      name: tekton-flux-eks-pulumi-dev
+      name: pulumi-eks-tekton-dev
       url: ${{ steps.pulumi-up.outputs.eks_url }}
     steps:
       - name: Checkout
