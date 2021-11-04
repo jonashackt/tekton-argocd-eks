@@ -45,17 +45,28 @@ pulumi up
 
 ### Accessing the Pulumi created EKS cluster
 
-See https://docs.aws.amazon.com/eks/latest/userguide/create-kubeconfig.html
-
-> Save the file to the default kubectl folder, with your cluster name in the file name. For example, if your cluster name is <devel>, save the file to ~/.kube/config-<devel>.
-
 After your EKS cluster has been setup correctly, use the `kubeconfig` const exported inside our Pulumi program to create the `kubeconfig.yml`:
 
 ```shell
-pulumi stack output kubeconfig > ~/.kube/config-eks-for-tekton
+pulumi stack output kubeconfig > kubeconfig.yml
 ```
 
+To access the cluster be sure to have `kubectl` installed. Try accessing it with:
 
+```shell
+kubectl --kubeconfig kubeconfig.yml get nodes
+```
+
+For merging the new kubeconfig into your systems profile see https://kubernetes.io/docs/concepts/configuration/organize-cluster-access-kubeconfig/
+
+For example you could do:
+
+```shell
+pulumi stack output kubeconfig > ~/.kube/config-eks-for-tekton
+export KUBECONFIG=~/.kube/config:~/.kube/config-eks-for-tekton
+```
+
+Now access via `kubectx` is also possible.
 
 
 ### GitHub Actions using Pulumi to provision AWS EKS
@@ -78,6 +89,7 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+      AWS_DEFAULT_REGION: 'eu-central-1'
     # Create an GitHub environment referencing our EKS cluster endpoint
     environment:
       name: tekton-flux-eks-pulumi-dev
@@ -118,7 +130,7 @@ jobs:
         working-directory: ./eks-deployment
 
       - name: Try to connect to our EKS cluster using kubectl
-        run: KUBECONFIG=./kubeconfig.yml kubectl get nodes
+        run: kubectl --kubeconfig kubeconfig.yml get nodes
         working-directory: ./eks-deployment
 
 
@@ -127,6 +139,23 @@ jobs:
 Mind to use `--suppress-outputs` flag for our `pulumi up` to prevent the `kubeconfig` from getting logged unmasked. 
 
 We also export our `eks endpoint url` as an GitHub Environment ([as described here](https://stackoverflow.com/a/67385569/4964553)).
+
+
+#### Prevent the ' getting credentials: exec: executable aws failed with exit code 255' error
+
+I got this error ([see log](https://github.com/jonashackt/tekton-flux-eks-pulumi/runs/4105712645?check_suite_focus=true)): 
+
+```
+...
+<botocore.awsrequest.AWSRequest object at 0x7f067c580670>
+Unable to connect to the server: getting credentials: exec: executable aws failed with exit code 255
+Error: Process completed with exit code 1.
+```
+
+Luckily this answer brought me into the right direction: https://stackoverflow.com/a/59184490/4964553
+
+I needed to define the `AWS_DEFAULT_REGION: 'eu-central-1'` also solely for `kubectl` in GitHub Actions. With this the error was gone, since the other two variables for `aws-cli` (which is already installed in the GitHub Actions virtual environment) were defined properly. 
+
 
 
 
