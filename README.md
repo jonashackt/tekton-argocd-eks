@@ -34,6 +34,26 @@ export const kubeconfig = cluster.kubeconfig;
 export const eksUrl = cluster.eksCluster.endpoint;
 ```
 
+To execute our Pulumi program, be sure to be logged into the correct Account at https://app.pulumi.com/your-account-here via `pulumi login` using your Pulumi account's token (do a `pulumi logout` before, if you're already logged into another Pulumi account).
+
+Now select the correct stack and fire up Pulumi with:
+
+```shell
+pulumi stack select dev
+pulumi up
+```
+
+### Accessing the Pulumi created EKS cluster
+
+See https://docs.aws.amazon.com/eks/latest/userguide/create-kubeconfig.html
+
+> Save the file to the default kubectl folder, with your cluster name in the file name. For example, if your cluster name is <devel>, save the file to ~/.kube/config-<devel>.
+
+After your EKS cluster has been setup correctly, use the `kubeconfig` const exported inside our Pulumi program to create the `kubeconfig.yml`:
+
+```shell
+pulumi stack output kubeconfig > ~/.kube/config-eks-for-tekton
+```
 
 
 
