@@ -1,9 +1,7 @@
-# tekton-eks-pulumi
-[![Build Status](https://github.com/jonashackt/tekton-flux-eks-pulumi/workflows/provision/badge.svg)](https://github.com/jonashackt/tekton-flux-eks-pulumi/actions)
+# pulumi-eks-tekton
+[![Build Status](https://github.com/jonashackt/pulumi-eks-tekton/workflows/provision/badge.svg)](https://github.com/jonashackt/pulumi-eks-tekton/actions)
 
 This Demo repository will deploy and configure a Tekton CI System with Flux on Amazon EKS.
-
-It is somehow based on my colleague Marco Paga's https://github.com/marcopaga/tekton-demo
 
 
 # EKS with Pulumi
