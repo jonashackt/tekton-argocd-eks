@@ -10,3 +10,9 @@ spec:
         - echo
       args:
         - "Hello World!"
+    - name: hello-next
+      image: alpine
+      command:
+        - echo
+      args:
+        - "Hello Next World on alpine!"
