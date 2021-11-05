@@ -450,6 +450,10 @@ Also apply with
 kubectl apply -f tekton-ci-config/pipeline-run.yml
 ```
 
+Looking into the Tekton dashboard we should now finally see a successful Pipeline run:
+
+![successful-tekton-buildpacks-pipeline-run](screenshots/successful-tekton-buildpacks-pipeline-run.png)
+
 
 # Integrate Tekton on EKS with GitLab.com
 
