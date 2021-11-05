@@ -171,9 +171,104 @@ So let's add the installation and wait for Tekton to become available:
           kubectl get pods --namespace tekton-pipelines
 ```
 
-### Persistent Volumes
+### Persistent Volumes (Optional)
 
 https://tekton.dev/docs/getting-started/#persistent-volumes
+
+Let's check if our EKS cluster [already has a `StorageClass` defined](https://docs.aws.amazon.com/eks/latest/userguide/storage-classes.html) with `kubectl get storageclasses`:
+
+```shell
+$ kubectl get storageclasses
+NAME            PROVISIONER             RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+gp2 (default)   kubernetes.io/aws-ebs   Delete          WaitForFirstConsumer   false                  179m
+```
+Before creating it let's check if there is already a `ConfigMap` defined:
+
+```shell
+kubectl describe configmap config-artifact-pvc -n tekton-pipelines
+```
+
+From the docs:
+
+> Your Kubernetes cluster, such as one from Google Kubernetes Engine, may have persistent volumes set up at the time of creation, thus no extra step is required
+
+If there's no Persistens Volume defined, we need to create a `ConfigMap` which defines the Persistent Volume Tekton will request:
+
+```shell
+kubectl create configmap config-artifact-pvc \
+                         --from-literal=size=10Gi \
+                         --from-literal=storageClassName=gp2 \
+                         -o yaml -n tekton-pipelines \
+                         --dry-run=client | kubectl replace -f -
+```
+
+### Tekton Dashboard
+
+https://tekton.dev/docs/dashboard/
+
+Install it with:
+
+```shell
+kubectl apply --filename https://github.com/tektoncd/dashboard/releases/latest/download/tekton-dashboard-release.yaml
+```
+
+
+### Tekton CLI
+
+Install the Tekton CLI e.g. via homebrew:
+
+```shell
+brew tap tektoncd/tools
+brew install tektoncd/tools/tektoncd-cli
+```
+
+### Run first Tekton Task
+
+See the [task-hello-world.yaml](tekton-ci-config/task-hello-world.yaml):
+
+```yaml
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: hello
+spec:
+  steps:
+    - name: hello
+      image: ubuntu
+      command:
+        - echo
+      args:
+        - "Hello World!"
+```
+
+Let's apply it to our cluster:
+
+```shell
+kubectl apply -f tekton-ci-config/task-hello-world.yaml
+```
+
+Let's show our newly created task:
+
+```shell
+$ tkn task list
+NAMESPACE   NAME    DESCRIPTION   AGE
+default     hello                 24 seconds ago
+```
+
+Now this is only a Tekton Task definition. We need another Tekton object - the `TaskRun` - in order to run our Task. Create it with:
+
+```shell
+tkn task start hello
+```
+
+Follow the logs of the TaskRun with:
+
+```shell
+tkn taskrun logs --last -f 
+```
+
+
+
 
 
 Dashboard, Triggers, commit-status-tracker...
