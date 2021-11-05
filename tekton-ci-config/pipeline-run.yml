@@ -1,0 +1,20 @@
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  name: buildpacks-test-pipeline-run
+spec:
+  serviceAccountName: buildpacks-service-account # Only needed if you set up authorization
+  pipelineRef:
+    name: buildpacks-test-pipeline
+  workspaces:
+    - name: source-workspace
+      subPath: source
+      persistentVolumeClaim:
+        claimName: buildpacks-source-pvc
+    - name: cache-workspace
+      subPath: cache
+      persistentVolumeClaim:
+        claimName: buildpacks-source-pvc
+  params:
+    - name: image
+      value: ghcr.io/jonashackt/microservice-api-spring-boot-tekton-test-image # This defines the name of output image
