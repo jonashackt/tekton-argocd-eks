@@ -277,6 +277,168 @@ kubectl proxy --port=8080
 Then open your Browser at http://localhost:8080/api/v1/namespaces/tekton-pipelines/services/tekton-dashboard:http/proxy/
 
 
+### Cloud Native Buildpacks
+
+https://buildpacks.io/docs/tools/tekton/
+
+#### Install Tasks
+
+Install [git clone](https://hub.tekton.dev/tekton/task/git-clone) and [buildpacks](https://hub.tekton.dev/tekton/task/buildpacks) Task:
+```shell
+kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/master/task/git-clone/0.4/git-clone.yaml
+kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/master/task/buildpacks/0.3/buildpacks.yaml
+```
+
+#### Create Secret for Container Registry authorization
+
+https://buildpacks.io/docs/tools/tekton/#42-authorization
+
+```shell
+kubectl create secret docker-registry docker-user-pass \
+    --docker-server=ghcr.io \
+    --docker-username=${{ github.actor }} \
+    --docker-password=${{ secrets.GITHUB_TOKEN }} \
+    --namespace default
+```
+
+Now create a `ServiceAccount` that uses this secret as [ghcr-service-account.yml](tekton-ci-config/ghcr-service-account.yml)
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: buildpacks-service-account
+secrets:
+  - name: docker-user-pass
+```
+
+#### Create buildpacks PVC 
+
+https://buildpacks.io/docs/tools/tekton/#41-pvcs
+
+Create new [resources.yml](tekton-ci-config/resources.yml):
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: buildpacks-source-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Mi
+```
+
+#### Create Pipeline
+
+Create [pipeline.yml](tekton-ci-config/pipeline.yml):
+
+```yaml
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: buildpacks-test-pipeline
+spec:
+  params:
+    - name: image
+      type: string
+      description: image URL to push
+  workspaces:
+    - name: source-workspace # Directory where application source is located. (REQUIRED)
+    - name: cache-workspace # Directory where cache is stored (OPTIONAL)
+  tasks:
+    - name: fetch-repository # This task fetches a repository from github, using the `git-clone` task you installed
+      taskRef:
+        name: git-clone
+      workspaces:
+        - name: output
+          workspace: source-workspace
+      params:
+        - name: url
+          value: https://github.com/buildpacks/samples
+        - name: subdirectory
+          value: ""
+        - name: deleteExisting
+          value: "true"
+    - name: buildpacks # This task uses the `buildpacks` task to build the application
+      taskRef:
+        name: buildpacks
+      runAfter:
+        - fetch-repository
+      workspaces:
+        - name: source
+          workspace: source-workspace
+        - name: cache
+          workspace: cache-workspace
+      params:
+        - name: APP_IMAGE
+          value: "$(params.image)"
+        - name: SOURCE_SUBPATH
+          value: "apps/java-maven" # This is the path within the samples repo you want to build (OPTIONAL, default: "")
+        - name: BUILDER_IMAGE
+          value: paketobuildpacks/builder:base # This is the builder we want the task to use (REQUIRED)
+    - name: display-results
+      runAfter:
+        - buildpacks
+      taskSpec:
+        steps:
+          - name: print
+            image: docker.io/library/bash:5.1.4@sha256:b208215a4655538be652b2769d82e576bc4d0a2bb132144c060efc5be8c3f5d6
+            script: |
+              #!/usr/bin/env bash
+              set -e
+              echo "Digest of created app image: $(params.DIGEST)"              
+        params:
+          - name: DIGEST
+      params:
+        - name: DIGEST
+          value: $(tasks.buildpacks.results.APP_IMAGE_DIGEST)
+```
+
+And now apply all three configs with:
+
+```shell
+kubectl apply -f tekton-ci-config/resources.yml -f tekton-ci-config/ghcr-service-account.yml -f tekton-ci-config/pipeline.yml
+```
+
+#### Create PipelineRun
+
+Create [pipeline-run.yml](tekton-ci-config/pipeline-run.yml):
+
+```yaml
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  name: buildpacks-test-pipeline-run
+spec:
+  serviceAccountName: buildpacks-service-account # Only needed if you set up authorization
+  pipelineRef:
+    name: buildpacks-test-pipeline
+  workspaces:
+    - name: source-workspace
+      subPath: source
+      persistentVolumeClaim:
+        claimName: buildpacks-source-pvc
+    - name: cache-workspace
+      subPath: cache
+      persistentVolumeClaim:
+        claimName: buildpacks-source-pvc
+  params:
+    - name: image
+      value: ghcr.io/jonashackt/microservice-api-spring-boot-tekton-test-image # This defines the name of output image
+```
+
+Also apply with
+
+```shell
+kubectl apply -f tekton-ci-config/pipeline-run.yml
+```
+
+
+# Integrate Tekton on EKS with GitLab.com
+
 ### Tekton Triggers
 
 https://tekton.dev/docs/triggers/install/
@@ -289,4 +451,4 @@ kubectl apply --filename https://storage.googleapis.com/tekton-releases/triggers
 ```
 
 
-Triggers, commit-status-tracker...
+commit-status-tracker...
