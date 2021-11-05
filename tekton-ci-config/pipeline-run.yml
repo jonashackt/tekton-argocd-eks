@@ -3,7 +3,7 @@ kind: PipelineRun
 metadata:
   name: buildpacks-test-pipeline-run
 spec:
-  serviceAccountName: buildpacks-service-account # Only needed if you set up authorization
+  serviceAccountName: buildpacks-service-account-gitlab # Only needed if you set up authorization
   pipelineRef:
     name: buildpacks-test-pipeline
   workspaces:
@@ -17,4 +17,4 @@ spec:
         claimName: buildpacks-source-pvc
   params:
     - name: image
-      value: ghcr.io/jonashackt/pulumi-eks-tekton-test-image # This defines the name of output image
+      value: registry.gitlab.com/jonashackt/microservice-api-spring-boot # This defines the name of output image
