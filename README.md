@@ -427,8 +427,10 @@ spec:
         claimName: buildpacks-source-pvc
   params:
     - name: image
-      value: ghcr.io/jonashackt/microservice-api-spring-boot-tekton-test-image # This defines the name of output image
+      value: ghcr.io/jonashackt/pulumi-eks-tekton-test-image # This defines the name of output image
 ```
+
+Mind the `params: name: image` and insert an image name containing the correct namespace of your Container Registry you created a Secret for! 
 
 Also apply with
 
