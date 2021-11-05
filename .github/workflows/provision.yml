@@ -74,5 +74,5 @@ jobs:
           kubectl apply -f tekton-ci-config/task-hello-world.yaml
           tkn task start hello --dry-run > taskRun-hello.yaml
           TASK_RUN_NAME=$(kubectl create -f taskRun-hello.yaml -o json | jq -r '.metadata.name')
-          kubectl wait --for=condition=SUCCEEDED=True --timeout=60s taskruns.tekton.dev/TASK_RUN_NAME
+          kubectl wait --for=condition=SUCCEEDED=True --timeout=60s taskruns.tekton.dev/$TASK_RUN_NAME
           tkn taskrun logs $TASK_RUN_NAME
