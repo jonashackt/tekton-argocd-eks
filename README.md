@@ -289,17 +289,29 @@ kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/master/task/
 kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/master/task/buildpacks/0.3/buildpacks.yaml
 ```
 
-#### Create Secret for Container Registry authorization
+#### Create Secret for GitLab Container Registry authorization
+
+To access the GitLab Container Registry we need to first create a PAT or deploy token (see https://docs.gitlab.com/ee/user/packages/container_registry/#authenticate-with-the-container-registry)
+
+Go to `Settings/Repository` inside your GitLab repo - for me this is https://gitlab.com/jonashackt/microservice-api-spring-boot/-/settings/repository
+
+There create a token `TektonBuildpacksToken` under `Deploy tokens` with a username `gitlab-token` and `read_registry` & `write_registry` access. 
+
+Now create GitHub Repository Secrets called `GITLAB_CR_USER` and `GITLAB_CR_PASSWORD` accordingly with the Tokens username and token.
+
+Finally we can create our Secret inside our GitHub Actions pipeline:
 
 https://buildpacks.io/docs/tools/tekton/#42-authorization
 
 ```shell
 kubectl create secret docker-registry docker-user-pass \
-    --docker-server=ghcr.io \
-    --docker-username=${{ github.actor }} \
-    --docker-password=${{ secrets.GITHUB_TOKEN }} \
+    --docker-server=registry.gitlab.com \
+    --docker-username=${{ secrets.GITLAB_CR_USER }} \
+    --docker-password=${{ secrets.GITLAB_CR_PASSWORD }} \
     --namespace default
 ```
+
+
 
 Now create a `ServiceAccount` that uses this secret as [ghcr-service-account.yml](tekton-ci-config/ghcr-service-account.yml)
 

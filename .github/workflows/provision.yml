@@ -96,12 +96,12 @@ jobs:
         run: |
           echo "--- Create Secret to access GitHub Container Registry"
           kubectl create secret docker-registry docker-user-pass \
-              --docker-server=ghcr.io \
-              --docker-username=${{ github.actor }} \
-              --docker-password=${{ secrets.GITHUB_TOKEN }} \
+              --docker-server=registry.gitlab.com \
+              --docker-username=${{ secrets.GITLAB_CR_USER }} \
+              --docker-password=${{ secrets.GITLAB_CR_PASSWORD }} \
               --namespace default
           echo "--- apply  buildpacks PVC, ServiceAccount & Pipeline"
-          kubectl apply -f tekton-ci-config/resources.yml -f tekton-ci-config/ghcr-service-account.yml -f tekton-ci-config/pipeline.yml
+          kubectl apply -f tekton-ci-config/resources.yml -f tekton-ci-config/gitlab-cr-service-account.yml -f tekton-ci-config/pipeline.yml
 
       - name: Run Tekton Buildpacks powered Pipeline by creating PipelineRun
         run: |
