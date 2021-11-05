@@ -202,16 +202,6 @@ kubectl create configmap config-artifact-pvc \
                          --dry-run=client | kubectl replace -f -
 ```
 
-### Tekton Dashboard
-
-https://tekton.dev/docs/dashboard/
-
-Install it with:
-
-```shell
-kubectl apply --filename https://github.com/tektoncd/dashboard/releases/latest/download/tekton-dashboard-release.yaml
-```
-
 
 ### Tekton CLI
 
@@ -268,7 +258,35 @@ tkn taskrun logs --last -f
 ```
 
 
+### Tekton Dashboard
+
+https://tekton.dev/docs/dashboard/
+
+Install it with:
+
+```shell
+kubectl apply --filename https://github.com/tektoncd/dashboard/releases/latest/download/tekton-dashboard-release.yaml
+```
+
+Now as we already ran some Tasks let's have a look into the Tekton dashboard:
+
+```shell
+kubectl proxy --port=8080
+```
+
+Then open your Browser at http://localhost:8080/api/v1/namespaces/tekton-pipelines/services/tekton-dashboard:http/proxy/
 
 
+### Tekton Triggers
 
-Dashboard, Triggers, commit-status-tracker...
+https://tekton.dev/docs/triggers/install/
+
+Install Tekton Triggers:
+
+```shell
+kubectl apply --filename https://storage.googleapis.com/tekton-releases/triggers/latest/release.yaml
+kubectl apply --filename https://storage.googleapis.com/tekton-releases/triggers/latest/interceptors.yaml
+```
+
+
+Triggers, commit-status-tracker...

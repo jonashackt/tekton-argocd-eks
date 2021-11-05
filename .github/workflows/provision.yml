@@ -53,10 +53,15 @@ jobs:
       - name: Try to connect to our EKS cluster using kubectl
         run: kubectl get nodes
 
-      - name: Install Tekton Pipelines & Dashboard
+      - name: Install Tekton Pipelines, Dashboard, Triggers
         run: |
+          echo "Install Tekton Pipelines"
           kubectl apply --filename https://storage.googleapis.com/tekton-releases/pipeline/latest/release.yaml
+          echo "Install Tekton Dashboard"
           kubectl apply --filename https://github.com/tektoncd/dashboard/releases/latest/download/tekton-dashboard-release.yaml
+          echo "Install Tekton Triggers"
+          kubectl apply --filename https://storage.googleapis.com/tekton-releases/triggers/latest/release.yaml
+          kubectl apply --filename https://storage.googleapis.com/tekton-releases/triggers/latest/interceptors.yaml
 
       - name: Wait for Tekton to become ready & show running Tekton pods
         run: |
@@ -71,8 +76,12 @@ jobs:
 
       - name: Create Tekton Task & run it with a TaskRun
         run: |
+          echo "Create Task"
           kubectl apply -f tekton-ci-config/task-hello-world.yaml
+          echo "Start TaskRun"
           tkn task start hello --dry-run > taskRun-hello.yaml
           TASK_RUN_NAME=$(kubectl create -f taskRun-hello.yaml -o json | jq -r '.metadata.name')
+          echo "Wait for TaskRun to succeed"
           kubectl wait --for=condition=SUCCEEDED=True --timeout=60s taskruns.tekton.dev/$TASK_RUN_NAME
+          echo "Show TaskRun logs"
           tkn taskrun logs $TASK_RUN_NAME
