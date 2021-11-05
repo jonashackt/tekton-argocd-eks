@@ -3,3 +3,4 @@
 *.iml
 
 kubeconfig.yml
+taskRun-hello.yaml
