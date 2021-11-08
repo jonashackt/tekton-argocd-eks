@@ -65,12 +65,14 @@ jobs:
       AWS_DEFAULT_REGION: 'eu-central-1'
     # Create an GitHub environment referencing our EKS cluster endpoint
     steps:
+      # We must use single quotes (!!!) here to access the kubeconfig like this:
+      # echo '${{ needs.provision-eks-with-pulumi.outputs.kubeconfig }}' > ~/.kube/config
+      # Otherwise we'll run into errors like (see https://stackoverflow.com/a/15930393/4964553):
+      # "error: error loading config file "/home/runner/.kube/config": yaml: did not find expected ',' or '}'"
       - name: Configure kubeconfig to use with kubectl from provisioning job
         run: |
           mkdir ~/.kube
-          echo "Convert kubeconfig json into yaml"
-          echo "${{ needs.provision-eks-with-pulumi.outputs.kubeconfig }}" > configjson
-          kubectl --kubeconfig ./configjson config view > ~/.kube/config
+          echo '${{ needs.provision-eks-with-pulumi.outputs.kubeconfig }}' > ~/.kube/config
 
       - name: Install Tekton Pipelines, Dashboard, Triggers
         run: |
