@@ -95,7 +95,7 @@ jobs:
       - name: Create Container Registry Secret & apply buildpacks PVC, ServiceAccount & Pipeline
         run: |
           echo "--- Create Secret to access GitLab Container Registry"
-          kubectl create secret docker-registry docker-user-pass \
+          kubectl apply secret docker-registry docker-user-pass \
               --docker-server=registry.gitlab.com \
               --docker-username=${{ secrets.GITLAB_CR_USER }} \
               --docker-password=${{ secrets.GITLAB_CR_PASSWORD }} \
