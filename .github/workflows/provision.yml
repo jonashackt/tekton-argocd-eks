@@ -111,4 +111,4 @@ jobs:
           echo "--- Wait for PipelineRun to succeed for 4 mins"
           kubectl wait --for=condition=SUCCEEDED=True --timeout=240s pipelineruns.tekton.dev/$PIPELINE_RUN_NAME
           echo "--- Show PipelineRun logs"
-          tkn taskrun logs $PIPELINE_RUN_NAME
+          tkn pipelinerun logs $PIPELINE_RUN_NAME
