@@ -311,6 +311,20 @@ kubectl create secret docker-registry docker-user-pass \
     --namespace default
 ```
 
+After the first successful secret creation, we sadly get the error `error: failed to create secret secrets "docker-user-pass" already exists` - which is correct, since the secret already exists.
+
+But there's help (see https://stackoverflow.com/a/45881259/4964553): We add `--save-config --dry-run=client -o yaml | kubectl apply -f -` to our command like this:
+
+```shell
+kubectl create secret docker-registry docker-user-pass \
+    --docker-server=registry.gitlab.com \
+    --docker-username=${{ secrets.GITLAB_CR_USER }} \
+    --docker-password=${{ secrets.GITLAB_CR_PASSWORD }} \
+    --namespace default \
+    --save-config --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Now we made an `apply` out of our `create` kubectl command, which we can use repetitively :)
 
 
 Now create a `ServiceAccount` that uses this secret as [ghcr-service-account.yml](tekton-ci-config/ghcr-service-account.yml)
