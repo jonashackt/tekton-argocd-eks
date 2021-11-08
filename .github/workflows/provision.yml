@@ -63,8 +63,9 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: 'eu-central-1'
-    # Create an GitHub environment referencing our EKS cluster endpoint
     steps:
+      - name: Checkout
+        uses: actions/checkout@master
       # We must use single quotes (!!!) here to access the kubeconfig like this:
       # echo '${{ needs.provision-eks-with-pulumi.outputs.kubeconfig }}' > ~/.kube/config
       # Otherwise we'll run into errors like (see https://stackoverflow.com/a/15930393/4964553):
