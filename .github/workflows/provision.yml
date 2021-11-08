@@ -3,7 +3,7 @@ name: provision
 on: [push]
 
 jobs:
-  provision-aws-eks:
+  provision-eks-with-pulumi:
     runs-on: ubuntu-latest
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -14,6 +14,8 @@ jobs:
     environment:
       name: pulumi-eks-tekton-dev
       url: ${{ steps.pulumi-up.outputs.eks_url }}
+    outputs:
+      kubeconfig: ${{ steps.pulumi-up.outputs.kubeconfig }}
     steps:
       - name: Checkout
         uses: actions/checkout@master
@@ -47,11 +49,26 @@ jobs:
           pulumi up --yes --suppress-outputs
           mkdir ~/.kube
           pulumi stack output kubeconfig > ~/.kube/config
+          echo "::set-output name=kubeconfig::$(pulumi stack output kubeconfig)"
           echo "::set-output name=eks_url::$(pulumi stack output eksUrl)/api/hello"
         working-directory: ./eks-deployment
 
       - name: Try to connect to our EKS cluster using kubectl
         run: kubectl get nodes
+
+  install-and-run-tekton-on-eks:
+    runs-on: ubuntu-latest
+    needs: provision-eks-with-pulumi
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: 'eu-central-1'
+    # Create an GitHub environment referencing our EKS cluster endpoint
+    steps:
+      - name: Configure kubeconfig to use with kubectl from provisioning job
+        run: |
+          mkdir ~/.kube
+          echo "${{ needs.provision-eks-with-pulumi.outputs.kubeconfig }}" > ~/.kube/config
 
       - name: Install Tekton Pipelines, Dashboard, Triggers
         run: |
