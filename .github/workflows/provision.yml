@@ -107,7 +107,7 @@ jobs:
         run: |
           echo "--- Create PipelineRun"
           PIPELINE_RUN_NAME=$(kubectl create -f tekton-ci-config/pipeline-run.yml -o json | jq -r '.metadata.name')
-          echo "--- Wait for PipelineRun to succeed"
-          kubectl wait --for=condition=SUCCEEDED=True --timeout=60s pipelineruns.tekton.dev/$PIPELINE_RUN_NAME
+          echo "--- Wait for PipelineRun to succeed for 4 mins"
+          kubectl wait --for=condition=SUCCEEDED=True --timeout=240s pipelineruns.tekton.dev/$PIPELINE_RUN_NAME
           echo "--- Show PipelineRun logs"
           tkn taskrun logs $PIPELINE_RUN_NAME
