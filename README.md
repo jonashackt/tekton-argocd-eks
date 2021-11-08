@@ -327,7 +327,7 @@ kubectl create secret docker-registry docker-user-pass \
 Now we made an `apply` out of our `create` kubectl command, which we can use repetitively :)
 
 
-Now create a `ServiceAccount` that uses this secret as [ghcr-service-account.yml](tekton-ci-config/ghcr-service-account.yml)
+We also need to create a `ServiceAccount` that uses this secret as [ghcr-service-account.yml](tekton-ci-config/ghcr-service-account.yml)
 
 ```yaml
 apiVersion: v1
@@ -437,9 +437,9 @@ Create [pipeline-run.yml](tekton-ci-config/pipeline-run.yml):
 apiVersion: tekton.dev/v1beta1
 kind: PipelineRun
 metadata:
-  name: buildpacks-test-pipeline-run
+  generateName: buildpacks-test-pipeline-run-
 spec:
-  serviceAccountName: buildpacks-service-account # Only needed if you set up authorization
+  serviceAccountName: buildpacks-service-account-gitlab # Only needed if you set up authorization
   pipelineRef:
     name: buildpacks-test-pipeline
   workspaces:
@@ -453,10 +453,19 @@ spec:
         claimName: buildpacks-source-pvc
   params:
     - name: image
-      value: ghcr.io/jonashackt/pulumi-eks-tekton-test-image # This defines the name of output image
+      value: registry.gitlab.com/jonashackt/microservice-api-spring-boot # This defines the name of output image
 ```
 
-Mind the `params: name: image` and insert an image name containing the correct namespace of your Container Registry you created a Secret for! 
+A crucial point here is to change the `metadata: name: buildpacks-test-pipeline-run` into `metadata: generateName: buildpacks-test-pipeline-run-`. Why? Because if we use the `name` parameter every `kubectl apply` tries to create the `PipelineRun` object with the same name which results in errors like this:
+
+```shell
+Error from server (AlreadyExists): error when creating "tekton-ci-config/pipeline-run.yml": pipelineruns.tekton.dev "buildpacks-test-pipeline-run" already exists
+```
+
+Using the `generateName` field fixes our problem (see https://stackoverflow.com/questions/69880096/how-to-restart-tekton-pipelinerun-having-a-pipeline-run-yml-defined-in-git-e-g/69880097#69880097), although we should implement a kind of garbage collection for our PipelineRun objects...
+
+
+Also mind the `params: name: image` and insert an image name containing the correct namespace of your Container Registry you created a Secret for! 
 
 Also apply with
 
