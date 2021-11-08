@@ -68,7 +68,9 @@ jobs:
       - name: Configure kubeconfig to use with kubectl from provisioning job
         run: |
           mkdir ~/.kube
-          echo "${{ needs.provision-eks-with-pulumi.outputs.kubeconfig }}" > ~/.kube/config
+          echo "Convert kubeconfig json into yaml"
+          echo "${{ needs.provision-eks-with-pulumi.outputs.kubeconfig }}" > configjson
+          kubectl --kubeconfig ./configjson config view > ~/.kube/config
 
       - name: Install Tekton Pipelines, Dashboard, Triggers
         run: |
