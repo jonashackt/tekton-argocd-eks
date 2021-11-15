@@ -4,9 +4,15 @@ metadata:
   name: buildpacks-test-pipeline
 spec:
   params:
-    - name: image
+    - name: IMAGE
       type: string
       description: image URL to push
+    - name: SOURCE_URL
+      type: string
+      description: A git repo url where the source code resides.
+    - name: SOURCE_REVISION
+      description: The branch, tag or SHA to checkout.
+      default: ""
   workspaces:
     - name: source-workspace # Directory where application source is located. (REQUIRED)
     - name: cache-workspace # Directory where cache is stored (OPTIONAL)
@@ -19,7 +25,9 @@ spec:
           workspace: source-workspace
       params:
         - name: url
-          value: https://gitlab.com/jonashackt/microservice-api-spring-boot
+          value: "$(params.SOURCE_URL)"
+        - name: revision
+          value: "$(params.SOURCE_REVISION)"
         - name: subdirectory
           value: ""
         - name: deleteExisting
@@ -36,7 +44,7 @@ spec:
           workspace: cache-workspace
       params:
         - name: APP_IMAGE
-          value: "$(params.image)"
+          value: "$(params.IMAGE)"
         - name: BUILDER_IMAGE
           value: paketobuildpacks/builder:base # This is the builder we want the task to use (REQUIRED)
     - name: display-results
