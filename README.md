@@ -480,6 +480,13 @@ Looking into the Tekton dashboard we should now finally see a successful Pipelin
 
 # Integrate Tekton on EKS with GitLab.com
 
+How to trigger Tekton `PipelineRun` from GitLab?
+
+The simplest possible solution is to leverage GitLab CI and trigger Tekton from there.
+
+Have a look at this example gitlab.com project https://gitlab.com/jonashackt/microservice-api-spring-boot/-/tree/trigger-tekton-via-gitlabci
+
+
 ### Tekton Triggers
 
 https://tekton.dev/docs/triggers/install/

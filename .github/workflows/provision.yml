@@ -14,6 +14,9 @@ jobs:
     environment:
       name: pulumi-eks-tekton-dev
       url: ${{ steps.pulumi-up.outputs.eks_url }}
+      # using outputs for providing the Pulumi created kubeconfig to subsequent jobs
+      # see https://stackoverflow.com/a/61236803/4964553
+      # & see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#jobsjob_idoutputs
     outputs:
       kubeconfig: ${{ steps.pulumi-up.outputs.kubeconfig }}
     steps:
