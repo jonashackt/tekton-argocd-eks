@@ -47,19 +47,3 @@ spec:
           value: "$(params.IMAGE)"
         - name: BUILDER_IMAGE
           value: paketobuildpacks/builder:base # This is the builder we want the task to use (REQUIRED)
-    - name: display-results
-      runAfter:
-        - buildpacks
-      taskSpec:
-        steps:
-          - name: print
-            image: docker.io/library/bash:5.1.4@sha256:b208215a4655538be652b2769d82e576bc4d0a2bb132144c060efc5be8c3f5d6
-            script: |
-              #!/usr/bin/env bash
-              set -e
-              echo "Digest of created app image: $(params.DIGEST)"
-        params:
-          - name: DIGEST
-      params:
-        - name: DIGEST
-          value: $(tasks.buildpacks.results.APP_IMAGE_DIGEST)
