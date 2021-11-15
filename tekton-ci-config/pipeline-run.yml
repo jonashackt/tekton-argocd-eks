@@ -17,9 +17,9 @@ spec:
       persistentVolumeClaim:
         claimName: buildpacks-source-pvc
   params:
-    - name: image
+    - name: IMAGE
       value: registry.gitlab.com/jonashackt/microservice-api-spring-boot # This defines the name of output image
     - name: SOURCE_URL
       value: https://gitlab.com/jonashackt/microservice-api-spring-boot
     - name: SOURCE_REVISION
-      value: master
+      value: main
