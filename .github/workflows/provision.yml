@@ -131,19 +131,8 @@ jobs:
 
       - name: Run Tekton Buildpacks powered Pipeline by creating PipelineRun
         run: |
-          echo "--- Create parameterized Tekton PipelineRun yaml"
-          tkn pipeline start buildpacks-test-pipeline
-            --serviceaccount buildpacks-service-account-gitlab
-            --workspace name=source-workspace,subPath=source,claimName=buildpacks-source-pvc
-            --workspace name=cache-workspace,subPath=cache,claimName=buildpacks-source-pvc
-            --param IMAGE=registry.gitlab.com/jonashackt/microservice-api-spring-boot
-            --param SOURCE_URL=https://gitlab.com/jonashackt/microservice-api-spring-boot
-            --param SOURCE_REVISION=main
-            --dry-run
-            --output yaml > pipelinerun.yml
-
           echo "--- Trigger PipelineRun in Tekton / K8s"
-          PIPELINE_RUN_NAME=$(kubectl create -f pipelinerun.yml --output=jsonpath='{.metadata.name}')
+          PIPELINE_RUN_NAME=$(kubectl create -f tekton-ci-config/pipeline-run.yml --output=jsonpath='{.metadata.name}')
 
           echo "--- Show Tekton PipelineRun logs"
           tkn pipelinerun logs $PIPELINE_RUN_NAME --follow
