@@ -131,9 +131,23 @@ jobs:
 
       - name: Run Tekton Buildpacks powered Pipeline by creating PipelineRun
         run: |
-          echo "--- Create PipelineRun"
-          PIPELINE_RUN_NAME=$(kubectl create -f tekton-ci-config/pipeline-run.yml -o json | jq -r '.metadata.name')
-          echo "--- Wait for PipelineRun to succeed for 4 mins"
-          kubectl wait --for=condition=SUCCEEDED=True --timeout=240s pipelineruns.tekton.dev/$PIPELINE_RUN_NAME
-          echo "--- Show PipelineRun logs"
-          tkn pipelinerun logs $PIPELINE_RUN_NAME
+          echo "--- Create parameterized Tekton PipelineRun yaml"
+          tkn pipeline start buildpacks-test-pipeline
+            --serviceaccount buildpacks-service-account-gitlab
+            --workspace name=source-workspace,subPath=source,claimName=buildpacks-source-pvc
+            --workspace name=cache-workspace,subPath=cache,claimName=buildpacks-source-pvc
+            --param IMAGE=registry.gitlab.com/jonashackt/microservice-api-spring-boot
+            --param SOURCE_URL=https://gitlab.com/jonashackt/microservice-api-spring-boot
+            --param SOURCE_REVISION=main
+            --dry-run
+            --output yaml > pipelinerun.yml
+
+          echo "--- Trigger PipelineRun in Tekton / K8s"
+          PIPELINE_RUN_NAME=$(kubectl create -f pipelinerun.yml --output=jsonpath='{.metadata.name}')
+
+          echo "--- Show Tekton PipelineRun logs"
+          tkn pipelinerun logs $PIPELINE_RUN_NAME --follow
+
+          echo "--- Check if Tekton PipelineRun Failed & exit GitLab Pipeline accordingly"
+          kubectl get pipelineruns $PIPELINE_RUN_NAME --output=jsonpath='{.status.conditions[*].reason}' | grep Failed && exit 1 || exit 0
+
