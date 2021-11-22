@@ -2,14 +2,16 @@ name: provision
 
 on: [push]
 
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  AWS_DEFAULT_REGION: 'eu-central-1'
+
 jobs:
   provision-eks-with-pulumi:
     runs-on: ubuntu-latest
     env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
-      AWS_DEFAULT_REGION: 'eu-central-1'
     # Create an GitHub environment referencing our EKS cluster endpoint
     environment:
       name: pulumi-eks-tekton-dev
@@ -62,10 +64,6 @@ jobs:
   install-and-run-tekton-on-eks:
     runs-on: ubuntu-latest
     needs: provision-eks-with-pulumi
-    env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: 'eu-central-1'
     steps:
       - name: Checkout
         uses: actions/checkout@master
@@ -93,11 +91,10 @@ jobs:
           kubectl wait --for=condition=ready pod -l app=tekton-pipelines-controller --namespace tekton-pipelines
           kubectl get pods --namespace tekton-pipelines
 
-      - name: Install Tekton CLI & jq
+      - name: Install Tekton CLI
         run: |
           brew tap tektoncd/tools
           brew install tektoncd/tools/tektoncd-cli
-          brew install jq
 
       - name: Create Tekton Task & run it with a TaskRun
         run: |
@@ -140,3 +137,8 @@ jobs:
           echo "--- Check if Tekton PipelineRun Failed & exit GitLab Pipeline accordingly"
           kubectl get pipelineruns $PIPELINE_RUN_NAME --output=jsonpath='{.status.conditions[*].reason}' | grep Failed && exit 1 || exit 0
 
+      - name: Create Tekton Triggers EventListener, Trigger Secret, ServiceAccount/RoleBinding/ClusterRoleBinding
+        run: |
+          kubectl apply -f tekton-ci-config/triggers/serviceaccount-rb-crb.yml
+          kubectl apply -f tekton-ci-config/triggers/tekton-trigger-secret.yml
+          kubectl apply -f tekton-ci-config/triggers/gitlab-push-listener.yml

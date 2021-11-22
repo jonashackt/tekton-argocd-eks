@@ -482,16 +482,28 @@ Looking into the Tekton dashboard we should now finally see a successful Pipelin
 
 How to trigger Tekton `PipelineRun` from GitLab?
 
+
+## Trigger Tekton directly from GitLab CI
+
 The simplest possible solution is to leverage GitLab CI and trigger Tekton from there.
+
+See https://stackoverflow.com/a/69991508/4964553
 
 Have a look at this example gitlab.com project https://gitlab.com/jonashackt/microservice-api-spring-boot/-/tree/trigger-tekton-via-gitlabci
 
 
-### Tekton Triggers
+## Tekton Triggers
+
+Full getting-started guide: https://github.com/tektoncd/triggers/tree/v0.17.0/docs/getting-started
+
+__BUT FIRST__ Examples are a great inspiration - for GitLab this is especially:
+
+https://github.com/tektoncd/triggers/tree/main/examples/v1beta1/gitlab
+
+
+#### Install Tekton Triggers
 
 https://tekton.dev/docs/triggers/install/
-
-Install Tekton Triggers:
 
 ```shell
 kubectl apply --filename https://storage.googleapis.com/tekton-releases/triggers/latest/release.yaml
@@ -499,4 +511,252 @@ kubectl apply --filename https://storage.googleapis.com/tekton-releases/triggers
 ```
 
 
-commit-status-tracker...
+#### ServiceAccount, RoleBinding & ClusterRoleBinding
+
+See https://github.com/tektoncd/triggers/blob/v0.17.0/examples/rbac.yaml
+
+So we also create [serviceaccount-rb-crb.yml](tekton-ci-config/triggers/serviceaccount-rb-crb.yml):
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tekton-triggers-example-sa
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: triggers-example-eventlistener-binding
+subjects:
+- kind: ServiceAccount
+  name: tekton-triggers-example-sa
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tekton-triggers-eventlistener-roles
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: triggers-example-eventlistener-clusterbinding
+subjects:
+- kind: ServiceAccount
+  name: tekton-triggers-example-sa
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: tekton-triggers-eventlistener-clusterroles
+```
+
+```shell
+kubectl apply -f tekton-ci-config/triggers/serviceaccount-rb-crb.yml
+```
+
+
+#### Tekton Trigger Secret
+
+As our Tekton Trigger API will be setup as a public API in the end, we need to secure our Trigger API somehow.
+
+One way is to create a secret ID the calling JSON must contain. So let's create [tekton-trigger-secret.yml](tekton-ci-config/triggers/tekton-trigger-secret.yml):
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gitlab-secret
+type: Opaque
+stringData:
+  secretToken: "1234567"
+```
+
+```shell
+kubectl apply -f tekton-ci-config/triggers/tekton-trigger-secret.yml
+```
+
+#### EventListener
+
+So let's start with the `EventListener` . We'll adapt the `EventListener` from the example (see https://github.com/tektoncd/triggers/blob/main/examples/v1beta1/gitlab/gitlab-push-listener.yaml) to use our Buildpacks Pipeline defined in [pipeline.yml](tekton-ci-config/pipeline.yml):
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: gitlab-listener
+spec:
+  serviceAccountName: tekton-triggers-example-sa
+  triggers:
+    - name: gitlab-push-events-trigger
+      interceptors:
+        - name: "verify-gitlab-payload"
+          ref:
+            name: "gitlab"
+            kind: ClusterInterceptor
+          params:
+            - name: secretRef
+              value:
+                secretName: "gitlab-secret"
+                secretKey: "secretToken"
+            - name: eventTypes
+              value:
+                - "Push Hook"
+      bindings:
+        - name: gitrevision
+          value: $(body.checkout_sha)
+        - name: gitrepositoryurl
+          value: $(body.repository.git_http_url)
+      template:
+        spec:
+          params:
+            - name: gitrevision
+            - name: gitrepositoryurl
+            - name: message
+              description: The message to print
+              default: This is the default message
+            - name: contenttype
+              description: The Content-Type of the event
+          resourcetemplates:
+            - apiVersion: tekton.dev/v1beta1
+              kind: PipelineRun
+              metadata:
+                generateName: buildpacks-test-pipeline-run-
+                #name: buildpacks-test-pipeline-run
+              spec:
+                serviceAccountName: buildpacks-service-account-gitlab # Only needed if you set up authorization
+                pipelineRef:
+                  name: buildpacks-test-pipeline
+                workspaces:
+                  - name: source-workspace
+                    subPath: source
+                    persistentVolumeClaim:
+                      claimName: buildpacks-source-pvc
+                  - name: cache-workspace
+                    subPath: cache
+                    persistentVolumeClaim:
+                      claimName: buildpacks-source-pvc
+                params:
+                  - name: IMAGE
+                    value: registry.gitlab.com/jonashackt/microservice-api-spring-boot # This defines the name of output image
+                  - name: SOURCE_URL
+                    value: https://gitlab.com/jonashackt/microservice-api-spring-boot
+                  - name: SOURCE_REVISION
+                    value: main
+                    
+#                  - name: message
+#                  value: $(tt.params.message)
+#                - name: contenttype
+#                  value: $(tt.params.contenttype)
+#                resources:
+#                - name: git-source
+#                  resourceSpec:
+#                    type: git
+#                    params:
+#                    - name: revision
+#                      value: $(tt.params.gitrevision)
+#                    - name: url
+#                      value: $(tt.params.gitrepositoryurl)
+```
+
+Now apply it to our cluster via:
+
+```shell
+kubectl apply -f tekton-ci-config/triggers/gitlab-push-listener.yml
+```
+
+
+#### Craft a Push Event
+
+See https://github.com/tektoncd/triggers/blob/main/examples/v1beta1/gitlab/gitlab-push-event.json
+
+```json
+{
+  "object_kind": "push",
+  "event_name": "push",
+  "before": "1a1736ec3d7b03349b31218a2f2c572c7c7206d6",
+  "after": "1a1736ec3d7b03349b31218a2f2c572c7c7206d6",
+  "ref": "refs/heads/main",
+  "checkout_sha": "1a1736ec3d7b03349b31218a2f2c572c7c7206d6",
+  "message": null,
+  "user_id": 111448,
+  "user_name": "Dibyo Mukherjee",
+  "user_username": "dibyom",
+  "user_email": "",
+  "user_avatar": "https://secure.gravatar.com/avatar/1d56773f447d86b8ffa33efb7a5d0cb5?s=80&d=identicon",
+  "project_id": 16507326,
+  "project": {
+    "id": 16507326,
+    "name": "triggers",
+    "description": "",
+    "web_url": "https://gitlab.com/dibyom/triggers",
+    "avatar_url": null,
+    "git_ssh_url": "git@gitlab.com:dibyom/triggers.git",
+    "git_http_url": "https://gitlab.com/dibyom/triggers.git",
+    "namespace": "Dibyo Mukherjee",
+    "visibility_level": 20,
+    "path_with_namespace": "dibyom/triggers",
+    "default_branch": "main",
+    "ci_config_path": null,
+    "homepage": "https://gitlab.com/dibyom/triggers",
+    "url": "git@gitlab.com:dibyom/triggers.git",
+    "ssh_url": "git@gitlab.com:dibyom/triggers.git",
+    "http_url": "https://gitlab.com/dibyom/triggers.git"
+  },
+  "commits": [
+    {
+      "id": "1a1736ec3d7b03349b31218a2f2c572c7c7206d6",
+      "message": "Add new file",
+      "timestamp": "2020-01-24T17:05:48+00:00",
+      "url": "https://gitlab.com/dibyom/triggers/-/commit/1a1736ec3d7b03349b31218a2f2c572c7c7206d6",
+      "author": {
+        "name": "Dibyo Mukherjee",
+        "email": "foo@bar.com"
+      },
+      "added": ["Readme.md"],
+      "modified": [],
+      "removed": []
+    }
+  ],
+  "total_commits_count": 1,
+  "push_options": {},
+  "repository": {
+    "name": "triggers",
+    "url": "git@gitlab.com:dibyom/triggers.git",
+    "description": "",
+    "homepage": "https://gitlab.com/dibyom/triggers",
+    "git_http_url": "https://gitlab.com/dibyom/triggers.git",
+    "git_ssh_url": "git@gitlab.com:dibyom/triggers.git",
+    "visibility_level": 20
+  }
+}
+```
+
+
+#### Port forward locally & Trigger Tekton EventListener via curl
+
+Port forward with a new `Service` locally:
+
+```shell
+kubectl port-forward service/el-gitlab-listener 8080
+```
+
+This should create a new service:
+
+```shell
+$ kubectl get services
+NAME                 TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)             AGE
+el-gitlab-listener   ClusterIP   10.100.114.152   <none>        8080/TCP,9000/TCP   2m39s
+```
+
+Now test-drive the trigger via curl:
+
+```shell
+curl -v \
+-H 'X-GitLab-Token: 1234567' \
+-H 'X-Gitlab-Event: Push Hook' \
+-H 'Content-Type: application/json' \
+--data-binary "@tekton-ci-config/triggers/gitlab-push-event.json" \
+http://localhost:8080
+```
+
+
+#### commit-status-tracker

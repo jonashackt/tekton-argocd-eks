@@ -1,0 +1,76 @@
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: gitlab-listener
+spec:
+  serviceAccountName: tekton-triggers-example-sa
+  triggers:
+    - name: gitlab-push-events-trigger
+      interceptors:
+        - name: "verify-gitlab-payload"
+          ref:
+            name: "gitlab"
+            kind: ClusterInterceptor
+          params:
+            - name: secretRef
+              value:
+                secretName: "gitlab-secret"
+                secretKey: "secretToken"
+            - name: eventTypes
+              value:
+                - "Push Hook"
+      bindings:
+        - name: gitrevision
+          value: $(body.checkout_sha)
+        - name: gitrepositoryurl
+          value: $(body.repository.git_http_url)
+      template:
+        spec:
+          params:
+            - name: gitrevision
+            - name: gitrepositoryurl
+            - name: message
+              description: The message to print
+              default: This is the default message
+            - name: contenttype
+              description: The Content-Type of the event
+          resourcetemplates:
+            - apiVersion: tekton.dev/v1beta1
+              kind: PipelineRun
+              metadata:
+                generateName: buildpacks-test-pipeline-run-
+                #name: buildpacks-test-pipeline-run
+              spec:
+                serviceAccountName: buildpacks-service-account-gitlab # Only needed if you set up authorization
+                pipelineRef:
+                  name: buildpacks-test-pipeline
+                workspaces:
+                  - name: source-workspace
+                    subPath: source
+                    persistentVolumeClaim:
+                      claimName: buildpacks-source-pvc
+                  - name: cache-workspace
+                    subPath: cache
+                    persistentVolumeClaim:
+                      claimName: buildpacks-source-pvc
+                params:
+                  - name: IMAGE
+                    value: registry.gitlab.com/jonashackt/microservice-api-spring-boot # This defines the name of output image
+                  - name: SOURCE_URL
+                    value: https://gitlab.com/jonashackt/microservice-api-spring-boot
+                  - name: SOURCE_REVISION
+                    value: main
+
+#                  - name: message
+#                  value: $(tt.params.message)
+#                - name: contenttype
+#                  value: $(tt.params.contenttype)
+#                resources:
+#                - name: git-source
+#                  resourceSpec:
+#                    type: git
+#                    params:
+#                    - name: revision
+#                      value: $(tt.params.gitrevision)
+#                    - name: url
+#                      value: $(tt.params.gitrepositoryurl)
