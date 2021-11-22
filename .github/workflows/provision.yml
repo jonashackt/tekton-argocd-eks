@@ -52,7 +52,8 @@ jobs:
           pulumi preview
           echo "lets use --suppress-outputs here in order to prevent Pulumi from logging the kubeconfig into public GitHub Action logs"
           pulumi up --yes --suppress-outputs
-          mkdir ~/.kube
+          echo "Create ~/.kube dir only, if not already existent (see https://stackoverflow.com/a/793867/4964553)"
+          mkdir -p ~/.kube
           pulumi stack output kubeconfig > ~/.kube/config
           echo "::set-output name=kubeconfig::$(pulumi stack output kubeconfig)"
           echo "::set-output name=eks_url::$(pulumi stack output eksUrl)/api/hello"
@@ -75,6 +76,8 @@ jobs:
         run: |
           mkdir ~/.kube
           echo '${{ needs.provision-eks-with-pulumi.outputs.kubeconfig }}' > ~/.kube/config
+          echo "--- Checking connectivity to cluster"
+          kubectl get nodes
 
       - name: Install Tekton Pipelines, Dashboard, Triggers
         run: |
