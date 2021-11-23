@@ -643,6 +643,9 @@ See https://stackoverflow.com/a/69991508/4964553
 Have a look at this example gitlab.com project https://gitlab.com/jonashackt/microservice-api-spring-boot/-/tree/trigger-tekton-via-gitlabci
 
 
+
+
+
 ## Tekton Triggers
 
 Full getting-started guide: https://github.com/tektoncd/triggers/tree/v0.17.0/docs/getting-started
@@ -814,6 +817,26 @@ Now apply it to our cluster via:
 kubectl apply -f tekton-ci-config/triggers/gitlab-push-listener.yml
 ```
 
+> Tekton Triggers creates a new Deployment and Service for the EventListener
+
+As stated in https://tekton.dev/docs/triggers/eventlisteners/#understanding-the-deployment-of-an-eventlistener 
+
+> Tekton Triggers uses the EventListener name prefixed with el- to name the Deployment and Service when instantiating them.
+
+this will also deploy a K8s `Service` called `el-gitlab-listener` and a `Deployment` also called `el-gitlab-listener`:
+
+```shell
+$ k get deployment
+NAME                 READY   UP-TO-DATE   AVAILABLE   AGE
+el-gitlab-listener   1/1     1            1           25h
+
+$ k get service
+NAME                 TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)             AGE
+el-gitlab-listener   ClusterIP   10.100.101.207   <none>        8080/TCP,9000/TCP   12m
+...
+```
+
+
 
 #### Craft a Push Event
 
@@ -912,7 +935,106 @@ http://localhost:8080
 
 #### Expose Tekton Trigger API on publicly on EKS
 
-See [Expose Tekton Dashboard publicly on EKS](#expose-tekton-dashboard-publicly-on-eks)
+The section [Expose Tekton Dashboard publicly on EKS](#expose-tekton-dashboard-publicly-on-eks) describes how to generally expose a web app publicly like the Tekton Dashboard on EKS using a simple `Service` of type `LoadBalancer`.
+
+But a Tekton Triggers EventListener also creates a Deployment AND Service when installed (https://tekton.dev/docs/triggers/eventlisteners/#exposing-an-eventlistener-outside-of-the-cluster):
+
+> By default, ClusterIP services such as EventListeners are only accessible within the cluster on which they are running.
+
+Sometimes the Tekton docs aren't formatted well, but the source GitHub READMEs are!
+
+
+
+Here's a simple guide on how to export our Tekton EventListener as Ingress using the Nginx Ingress controller:
+
+https://github.com/tektoncd/triggers/blob/main/docs/eventlisteners.md#exposing-an-eventlistener-using-the-nginx-ingress-controller
+
+__1. Install Nginx ingress controller:__
+
+```shell
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.34.1/deploy/static/provider/cloud/deploy.yaml
+```
+
+The docs have more details for us (https://kubernetes.github.io/ingress-nginx/deploy/#aws):
+
+> In AWS we use a Network load balancer (NLB) to expose the NGINX Ingress controller behind a Service of Type=LoadBalancer.
+
+
+
+__2. Obtain the name of our EventListener:__
+
+```shell
+kubectl get eventlistener gitlab-listener -o=jsonpath='{.status.configuration.generatedName}{"\n"}'
+```
+
+
+__3. Instantiate Ingress object:__
+
+```yaml
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: tekton-eventlistener-ingress
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /
+            backend:
+              serviceName: el-gitlab-listener # REPLACE WITH YOUR SERVICE NAME FROM STEP 2
+              servicePort: 8080
+```
+
+```shell
+kubectl apply -f tekton-ci-config/triggers/tekton-eventlistener-ingress.yml
+```
+
+__4. Get Ingress object's IP address:__
+
+```shell
+kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+```
+
+__5. Testdrive Trigger via curl__
+
+Now let's try our `curl` using the predefined [](tekton-ci-config/triggers/gitlab-push-event.json):
+
+```shell
+TEKTON_EVENTLISTENER_INGRESS_HOST="http://$(kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+
+curl -v \
+-H 'X-GitLab-Token: 1234567' \
+-H 'X-Gitlab-Event: Push Hook' \
+-H 'Content-Type: application/json' \
+--data-binary "@tekton-ci-config/triggers/gitlab-push-event.json" \
+TEKTON_EVENTLISTENER_INGRESS_HOST
+```
+
+
+Finally we can implement all this inside our GitHub Action workflow [.github/workflows/provision.yml](.github/workflows/provision.yml):
+
+```yaml
+      - name: Expose Tekton Triggers EventListener via Ingress & testdrive Trigger
+        run: |
+          echo "--- Deploy Nginx Ingress Controller"
+          kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.34.1/deploy/static/provider/cloud/deploy.yaml
+          echo "--- Apply Tekton EventListener Ingress"
+          kubectl apply -f tekton-ci-config/triggers/tekton-eventlistener-ingress.yml
+          echo "--- Get Ingress host name"
+          TEKTON_EVENTLISTENER_INGRESS_HOST="http://$(kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+          echo "Our EventListener's hostname is $TEKTON_EVENTLISTENER_INGRESS_HOST"
+          echo "--- Testdrive Trigger via curl"
+          curl -v \
+          -H 'X-GitLab-Token: 1234567' \
+          -H 'X-Gitlab-Event: Push Hook' \
+          -H 'Content-Type: application/json' \
+          --data-binary "@tekton-ci-config/triggers/gitlab-push-event.json" \
+          TEKTON_EVENTLISTENER_INGRESS_HOST
+```
+
 
 
 

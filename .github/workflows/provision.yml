@@ -160,3 +160,21 @@ jobs:
           kubectl apply -f tekton-ci-config/triggers/serviceaccount-rb-crb.yml
           kubectl apply -f tekton-ci-config/triggers/tekton-trigger-secret.yml
           kubectl apply -f tekton-ci-config/triggers/gitlab-push-listener.yml
+
+      - name: Expose Tekton Triggers EventListener via Ingress & testdrive Trigger
+        run: |
+          echo "--- Deploy Nginx Ingress Controller"
+          kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.34.1/deploy/static/provider/cloud/deploy.yaml
+          echo "--- Apply Tekton EventListener Ingress"
+          kubectl apply -f tekton-ci-config/triggers/tekton-eventlistener-ingress.yml
+          echo "--- Get Ingress host name"
+          TEKTON_EVENTLISTENER_INGRESS_HOST="http://$(kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+          echo "Our EventListener's hostname is $TEKTON_EVENTLISTENER_INGRESS_HOST"
+          echo "--- Testdrive Trigger via curl"
+          curl -v \
+          -H 'X-GitLab-Token: 1234567' \
+          -H 'X-Gitlab-Event: Push Hook' \
+          -H 'Content-Type: application/json' \
+          --data-binary "@tekton-ci-config/triggers/gitlab-push-event.json" \
+          TEKTON_EVENTLISTENER_INGRESS_HOST
+
