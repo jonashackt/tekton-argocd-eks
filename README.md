@@ -971,7 +971,7 @@ kubectl get eventlistener gitlab-listener -o=jsonpath='{.status.configuration.ge
 __3. Instantiate Ingress object:__
 
 ```yaml
-apiVersion: extensions/v1beta1
+apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: tekton-eventlistener-ingress
@@ -983,9 +983,12 @@ spec:
     - http:
         paths:
           - path: /
+            pathType: Prefix
             backend:
-              serviceName: el-gitlab-listener # REPLACE WITH YOUR SERVICE NAME FROM STEP 2
-              servicePort: 8080
+              service:
+                name: el-gitlab-listener
+                port:
+                  number: 8080
 ```
 
 ```shell
