@@ -107,7 +107,7 @@ jobs:
           echo "--- Create GitHub environment var"
           DASHBOARD_HOST=$(kubectl get service tekton-dashboard-external-svc-manual -n tekton-pipelines --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')
           echo "The Tekton dashboard is accessible at $DASHBOARD_HOST - creating GitHub Environment"
-          echo "::set-output name=dashboard_host::$DASHBOARD_HOST"
+          echo "::set-output name=dashboard_host::http://$DASHBOARD_HOST"
 
       - name: Install Tekton CLI
         run: |
