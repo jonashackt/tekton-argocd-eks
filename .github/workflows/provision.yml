@@ -103,7 +103,7 @@ jobs:
           echo "--- Expose Tekton Dashboard via K8s Service"
           kubectl apply -f tekton-dashboard-service.yml -n tekton-pipelines
           echo "--- Wait until Loadbalancer url is present (see https://superuser.com/a/375331/497608)"
-          until kubectl describe service/tekton-dashboard-external-svc-manual | grep "EnsuredLoadBalancer"; do : ; done
+          until kubectl describe service/tekton-dashboard-external-svc-manual -n tekton-pipelines | grep "EnsuredLoadBalancer"; do : ; done
           echo "--- Create GitHub environment var"
           DASHBOARD_HOST=$(kubectl get service tekton-dashboard-external-svc-manual -n tekton-pipelines --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')
           echo "The Tekton dashboard is accessible at $DASHBOARD_HOST - creating GitHub Environment"
