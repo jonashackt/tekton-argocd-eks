@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: tekton-dashboard-external-svc-manual
+spec:
+  selector:
+    app: tekton-dashboard
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 9097
+  type: LoadBalancer
