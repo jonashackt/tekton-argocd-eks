@@ -277,6 +277,157 @@ kubectl proxy --port=8080
 Then open your Browser at http://localhost:8080/api/v1/namespaces/tekton-pipelines/services/tekton-dashboard:http/proxy/
 
 
+#### Expose Tekton Dashboard publicly on EKS
+
+The ultra simple (but only PoC grade) solution to expose an public endpoint on a Cloud Provider's managed K8s is to use a `Service` with type `LoadBalancer`. As the docs state (https://kubernetes.io/docs/concepts/services-networking/service/#loadbalancer):
+
+> On cloud providers which support external load balancers, setting the type field to LoadBalancer provisions a load balancer for your Service. The actual creation of the load balancer happens asynchronously, and information about the provisioned balancer is published in the Service's .status.loadBalancer field.
+
+##### Service yaml
+
+So this would be our ultra simple Service to access our Tekton Dashboard (see [tekton-dashboard-service.yml](tekton-dashboard-service.yml)):
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: tekton-dashboard-external-svc-manual
+spec:
+  selector:
+    app: tekton-dashboard
+  ports:
+    - protocol: TCP
+      port: 80
+      targetPort: 9097
+  type: LoadBalancer
+```
+
+But it's not that easy to simply apply it and grab the url. Have a look inside our [provision.yml](.github/workflows/provision.yml) for all commands in working order. Here are the steps:
+
+First we `apply` our [tekton-dashboard-service.yml](tekton-dashboard-service.yml):
+
+```yaml
+kubectl apply -f tekton-dashboard-service.yml -n tekton-pipelines
+```
+
+##### Wait until AWS ELB is provisioned & populated into `status.loadBalancer.ingress[0].hostname`
+
+Then we have to wait until our AWS ELB LoadBalancer is provisioned. [As stated](https://kubernetes.io/docs/concepts/services-networking/service/#loadbalancer) the
+
+> ...actual creation of the load balancer happens asynchronously, and information about the provisioned balancer is published in the Service's .status.loadBalancer field.
+
+If the LoadBalancer is readily provisioned, a `kubectl get service/tekton-dashboard-external-svc-manual --output=yaml` shows us the following:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    kubectl.kubernetes.io/last-applied-configuration: |
+      {"apiVersion":"v1","kind":"Service","metadata":{"annotations":{},"name":"tekton-dashboard-external-svc-manual","namespace":"tekton-pipelines"},"spec":{"ports":[{"port":80,"protocol":"TCP","targetPort":9097}],"selector":{"app":"tekton-dashboard"},"type":"LoadBalancer"}}
+  creationTimestamp: "2021-11-23T09:07:27Z"
+  finalizers:
+  - service.kubernetes.io/load-balancer-cleanup
+  name: tekton-dashboard-external-svc-manual
+  namespace: tekton-pipelines
+  resourceVersion: "677614"
+  uid: 26431f31-0b27-4df3-a6cd-3d32f825cd5f
+spec:
+  clusterIP: 10.100.42.167
+  clusterIPs:
+  - 10.100.42.167
+  externalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - nodePort: 31306
+    port: 80
+    protocol: TCP
+    targetPort: 9097
+  selector:
+    app: tekton-dashboard
+  sessionAffinity: None
+  type: LoadBalancer
+status:
+  loadBalancer:
+    ingress:
+    - hostname: a26431f310b274df3a6cd3d32f825cd5-1729774979.eu-central-1.elb.amazonaws.com
+```
+
+So we have to somehow wait for the field `status.loadBalancer` to contain the `ingress[0].hostname` (remember to use the list selector `[0]` here, since `hostname` is represented as list).
+
+But since the field `ingress[0].hostname` isn't present at first, a direct access via `kubectl get service tekton-dashboard-external-svc-manual -n tekton-pipelines --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}'` would result in zero results.
+
+As `kubectl wait` isn't capable of beeing used without `status.conditions` fields present right now (see the issue [kubectl wait on arbitrary jsonpath](https://github.com/kubernetes/kubernetes/issues/83094), the solution is beeing merged into `v1.23` (see this PR https://github.com/kubernetes/kubernetes/pull/105776)), we need to find an alternative way for now.
+
+The command `kubectl describe service/tekton-dashboard-external-svc-manual` presents us with information the `kubectl get` doesn't:
+
+```shell
+$ kubectl describe service/tekton-dashboard-external-svc-manual
+
+Name:                     tekton-dashboard-external-svc-manual
+Namespace:                tekton-pipelines
+Labels:                   <none>
+Annotations:              <none>
+Selector:                 app=tekton-dashboard
+Type:                     LoadBalancer
+IP Family Policy:         SingleStack
+IP Families:              IPv4
+IP:                       10.100.0.236
+IPs:                      10.100.0.236
+LoadBalancer Ingress:     ad2284e4f59cd43a8b6c14ab937eb42a-1721109141.eu-central-1.elb.amazonaws.com
+Port:                     <unset>  80/TCP
+TargetPort:               9097/TCP
+NodePort:                 <unset>  31076/TCP
+Endpoints:                172.31.5.133:9097
+Session Affinity:         None
+External Traffic Policy:  Cluster
+Events:
+  Type    Reason                Age   From                Message
+  ----    ------                ----  ----                -------
+  Normal  EnsuringLoadBalancer  49m   service-controller  Ensuring load balancer
+  Normal  EnsuredLoadBalancer   49m   service-controller  Ensured load balancer
+```
+
+When the Event `EnsuredLoadBalancer` pops up, our AWS ELB LoadBalancer seams to be ready and the url should be present also.
+
+Therefore the answer ["watch" the output of a command until a particular string is observed and then exit](https://superuser.com/a/375331/497608) comes in handy:
+
+```shell
+until my_cmd | grep "String Im Looking For"; do : ; done
+```
+
+If we use this for our `kubectl describe` we can craft a command which will wait until the Reason `EnsuredLoadBalancer` occurs as Event in our Service:
+
+```shell
+until kubectl describe service/tekton-dashboard-external-svc-manual | grep "EnsuredLoadBalancer"; do : ; done
+```
+
+##### Grab the Tekton Dashboard URL and populate as GitHub Environment
+
+Now that our AWS ELB is provisioned we can finally grad it's URL with:
+
+```shell
+kubectl get service tekton-dashboard-external-svc-manual -n tekton-pipelines --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+```
+
+Then it's easy to use the output and create a GitHub step variable, which is used in the GitHub Environment definition at the top of the job:
+
+```yaml
+echo "--- Create GitHub environment var"
+DASHBOARD_HOST=$(kubectl get service tekton-dashboard-external-svc-manual -n tekton-pipelines --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+echo "The Tekton dashboard is accessible at $DASHBOARD_HOST - creating GitHub Environment"
+echo "::set-output name=dashboard_host::http://$DASHBOARD_HOST"
+```
+
+
+
+
+
+
+
+
 ### Cloud Native Buildpacks
 
 https://buildpacks.io/docs/tools/tekton/
@@ -757,6 +908,62 @@ curl -v \
 --data-binary "@tekton-ci-config/triggers/gitlab-push-event.json" \
 http://localhost:8080
 ```
+
+
+#### Expose Tekton Trigger API on publicly on EKS
+
+See [Expose Tekton Dashboard publicly on EKS](#expose-tekton-dashboard-publicly-on-eks)
+
+
+
+#### Ingress on EKS
+
+https://www.eksworkshop.com/beginner/130_exposing-service/ingress_controller_alb/
+
+> In order for the Ingress resource to work, the cluster must have an ingress controller running. 
+> Unlike other types of controllers which run as part of the kube-controller-manager binary, Ingress controllers are not started automatically with a cluster.
+
+###### Deploy AWS Load Balancer Controller
+
+> The AWS ALB Ingress Controller has been rebranded to AWS Load Balancer Controller.
+
+https://aws.amazon.com/blogs/opensource/kubernetes-ingress-aws-alb-ingress-controller/
+
+Pulumi AWS Load Balancer Controller support: https://github.com/pulumi/pulumi-eks/issues/29
+
+https://pulumi.awsworkshop.io/50_eks_platform/30_deploy_ingress_controller.html
+
+
+
+Let's create a simple [tekton-dashboard-ingress.yml](tekton-dashboard-ingress.yml) as stated in https://kubernetes.io/docs/concepts/services-networking/ingress/#the-ingress-resource:
+
+```yaml
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tekton-dashboard-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  rules:
+    - http:
+        paths:
+          - path: /tekton-dashboard
+            pathType: Prefix
+            backend:
+              service:
+                name: tekton-dashboard
+                port:
+                  number: 9097
+```
+
+Apply it with
+
+```shell
+kubectl apply -f tekton-dashboard-ingress.yml -n tekton-pipelines
+```
+
+
 
 
 #### commit-status-tracker
