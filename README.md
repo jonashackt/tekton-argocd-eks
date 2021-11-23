@@ -1010,7 +1010,7 @@ curl -v \
 -H 'X-Gitlab-Event: Push Hook' \
 -H 'Content-Type: application/json' \
 --data-binary "@tekton-ci-config/triggers/gitlab-push-event.json" \
-TEKTON_EVENTLISTENER_INGRESS_HOST
+$TEKTON_EVENTLISTENER_INGRESS_HOST
 ```
 
 
@@ -1032,7 +1032,7 @@ Finally we can implement all this inside our GitHub Action workflow [.github/wor
           -H 'X-Gitlab-Event: Push Hook' \
           -H 'Content-Type: application/json' \
           --data-binary "@tekton-ci-config/triggers/gitlab-push-event.json" \
-          TEKTON_EVENTLISTENER_INGRESS_HOST
+          $TEKTON_EVENTLISTENER_INGRESS_HOST
 ```
 
 
