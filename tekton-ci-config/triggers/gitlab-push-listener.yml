@@ -57,20 +57,6 @@ spec:
                   - name: IMAGE
                     value: registry.gitlab.com/jonashackt/microservice-api-spring-boot # This defines the name of output image
                   - name: SOURCE_URL
-                    value: https://gitlab.com/jonashackt/microservice-api-spring-boot
+                    value: $(tt.params.gitrepositoryurl)
                   - name: SOURCE_REVISION
-                    value: main
-
-#                  - name: message
-#                  value: $(tt.params.message)
-#                - name: contenttype
-#                  value: $(tt.params.contenttype)
-#                resources:
-#                - name: git-source
-#                  resourceSpec:
-#                    type: git
-#                    params:
-#                    - name: revision
-#                      value: $(tt.params.gitrevision)
-#                    - name: url
-#                      value: $(tt.params.gitrepositoryurl)
+                    value: $(tt.params.gitrevision)

@@ -1,0 +1,110 @@
+{
+  "object_kind": "push",
+  "event_name": "push",
+  "before": "5bbc8580432fc7a16f50be27eb513db42aad0860",
+  "after": "c25a74c8f919a72e3f00928917dc4ab2944ab061",
+  "ref": "refs/heads/main",
+  "checkout_sha": "c25a74c8f919a72e3f00928917dc4ab2944ab061",
+  "message": null,
+  "user_id": 2351133,
+  "user_name": "Jonas Hecht",
+  "user_username": "jonashackt",
+  "user_email": "",
+  "user_avatar": "https://secure.gravatar.com/avatar/a5c83d481ac20557b775703761aef7dc?s=80&d=identicon",
+  "project_id": 30444286,
+  "project": {
+    "id": 30444286,
+    "name": "microservice-api-spring-boot",
+    "description": "Forked from https://github.com/jonashackt/microservice-api-spring-boot",
+    "web_url": "https://gitlab.com/jonashackt/microservice-api-spring-boot",
+    "avatar_url": null,
+    "git_ssh_url": "git@gitlab.com:jonashackt/microservice-api-spring-boot.git",
+    "git_http_url": "https://gitlab.com/jonashackt/microservice-api-spring-boot.git",
+    "namespace": "Jonas Hecht",
+    "visibility_level": 20,
+    "path_with_namespace": "jonashackt/microservice-api-spring-boot",
+    "default_branch": "main",
+    "ci_config_path": "",
+    "homepage": "https://gitlab.com/jonashackt/microservice-api-spring-boot",
+    "url": "git@gitlab.com:jonashackt/microservice-api-spring-boot.git",
+    "ssh_url": "git@gitlab.com:jonashackt/microservice-api-spring-boot.git",
+    "http_url": "https://gitlab.com/jonashackt/microservice-api-spring-boot.git"
+  },
+  "commits": [
+    {
+      "id": "c25a74c8f919a72e3f00928917dc4ab2944ab061",
+      "message": "Fixing cache image naming\n",
+      "title": "Fixing cache image naming",
+      "timestamp": "2021-10-19T10:32:58+02:00",
+      "url": "https://gitlab.com/jonashackt/microservice-api-spring-boot/-/commit/c25a74c8f919a72e3f00928917dc4ab2944ab061",
+      "author": {
+        "name": "Jonas Hecht",
+        "email": "jonas.hecht@codecentric.de"
+      },
+      "added": [
+
+      ],
+      "modified": [
+        ".gitlab-ci.yml",
+        "README.md"
+      ],
+      "removed": [
+
+      ]
+    },
+    {
+      "id": "06a7f1d2ad646acef149b1aad4600eb2b1268f0c",
+      "message": "Merge branch 'refactor-ci' into 'main'\n\nRefactor ci\n\nSee merge request jonashackt/microservice-api-spring-boot!2",
+      "title": "Merge branch 'refactor-ci' into 'main'",
+      "timestamp": "2021-10-19T08:30:46+00:00",
+      "url": "https://gitlab.com/jonashackt/microservice-api-spring-boot/-/commit/06a7f1d2ad646acef149b1aad4600eb2b1268f0c",
+      "author": {
+        "name": "Jonas Hecht",
+        "email": "jonas.hecht@codecentric.de"
+      },
+      "added": [
+
+      ],
+      "modified": [
+        ".gitlab-ci.yml",
+        "README.md"
+      ],
+      "removed": [
+
+      ]
+    },
+    {
+      "id": "5bbc8580432fc7a16f50be27eb513db42aad0860",
+      "message": "Add cache image\n",
+      "title": "Add cache image",
+      "timestamp": "2021-10-19T10:05:31+02:00",
+      "url": "https://gitlab.com/jonashackt/microservice-api-spring-boot/-/commit/5bbc8580432fc7a16f50be27eb513db42aad0860",
+      "author": {
+        "name": "Jonas Hecht",
+        "email": "jonas.hecht@codecentric.de"
+      },
+      "added": [
+
+      ],
+      "modified": [
+        ".gitlab-ci.yml",
+        "README.md"
+      ],
+      "removed": [
+
+      ]
+    }
+  ],
+  "total_commits_count": 3,
+  "push_options": {
+  },
+  "repository": {
+    "name": "microservice-api-spring-boot",
+    "url": "git@gitlab.com:jonashackt/microservice-api-spring-boot.git",
+    "description": "Forked from https://github.com/jonashackt/microservice-api-spring-boot",
+    "homepage": "https://gitlab.com/jonashackt/microservice-api-spring-boot",
+    "git_http_url": "https://gitlab.com/jonashackt/microservice-api-spring-boot.git",
+    "git_ssh_url": "git@gitlab.com:jonashackt/microservice-api-spring-boot.git",
+    "visibility_level": 20
+  }
+}
