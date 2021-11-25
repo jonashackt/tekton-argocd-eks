@@ -24,11 +24,14 @@ spec:
           value: $(body.checkout_sha)
         - name: gitrepositoryurl
           value: $(body.repository.git_http_url)
+        - name: gitrepository_pathonly
+          value: $(body.project.path_with_namespace)
       template:
         spec:
           params:
             - name: gitrevision
             - name: gitrepositoryurl
+            - name: gitrepository_pathonly
             - name: message
               description: The message to print
               default: This is the default message
@@ -39,9 +42,8 @@ spec:
               kind: PipelineRun
               metadata:
                 generateName: buildpacks-test-pipeline-run-
-                #name: buildpacks-test-pipeline-run
               spec:
-                serviceAccountName: buildpacks-service-account-gitlab # Only needed if you set up authorization
+                serviceAccountName: buildpacks-service-account-gitlab
                 pipelineRef:
                   name: buildpacks-test-pipeline
                 workspaces:
@@ -55,7 +57,7 @@ spec:
                       claimName: buildpacks-source-pvc
                 params:
                   - name: IMAGE
-                    value: registry.gitlab.com/jonashackt/microservice-api-spring-boot # This defines the name of output image
+                    value: "registry.gitlab.com/$(tt.params.gitrepository_pathonly)" #here our GitLab's registry url must be configured
                   - name: SOURCE_URL
                     value: $(tt.params.gitrepositoryurl)
                   - name: SOURCE_REVISION
