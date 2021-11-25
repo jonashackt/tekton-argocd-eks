@@ -632,7 +632,7 @@ __BUT FIRST__ Examples are a great inspiration - for GitLab this is especially:
 https://github.com/tektoncd/triggers/tree/main/examples/v1beta1/gitlab
 
 
-#### Install Tekton Triggers
+### Install Tekton Triggers
 
 https://tekton.dev/docs/triggers/install/
 
@@ -642,7 +642,7 @@ kubectl apply --filename https://storage.googleapis.com/tekton-releases/triggers
 ```
 
 
-#### ServiceAccount, RoleBinding & ClusterRoleBinding
+### ServiceAccount, RoleBinding & ClusterRoleBinding
 
 See https://github.com/tektoncd/triggers/blob/v0.17.0/examples/rbac.yaml
 
@@ -685,7 +685,7 @@ kubectl apply -f tekton-ci-config/triggers/serviceaccount-rb-crb.yml
 ```
 
 
-#### Tekton Trigger Secret
+### Tekton Trigger Secret
 
 As our Tekton Trigger API will be setup as a public API in the end, we need to secure our Trigger API somehow.
 
@@ -705,9 +705,11 @@ stringData:
 kubectl apply -f tekton-ci-config/triggers/tekton-trigger-secret.yml
 ```
 
-#### EventListener
+### EventListener
 
-So let's start with the `EventListener` . We'll adapt the `EventListener` from the example (see https://github.com/tektoncd/triggers/blob/main/examples/v1beta1/gitlab/gitlab-push-listener.yaml) to use our Buildpacks Pipeline defined in [pipeline.yml](tekton-ci-config/pipeline.yml):
+So let's start with the `EventListener` . We'll adapt the `EventListener` from the example (see https://github.com/tektoncd/triggers/blob/main/examples/v1beta1/gitlab/gitlab-push-listener.yaml) to use our Buildpacks Pipeline defined in [pipeline.yml](tekton-ci-config/pipeline.yml).
+
+Therefore let's create a new file called [gitlab-push-listener.yml](tekton-ci-config/triggers/gitlab-push-listener.yml):
 
 ```yaml
 apiVersion: triggers.tekton.dev/v1beta1
@@ -772,20 +774,7 @@ spec:
                     value: https://gitlab.com/jonashackt/microservice-api-spring-boot
                   - name: SOURCE_REVISION
                     value: main
-                    
-#                  - name: message
-#                  value: $(tt.params.message)
-#                - name: contenttype
-#                  value: $(tt.params.contenttype)
-#                resources:
-#                - name: git-source
-#                  resourceSpec:
-#                    type: git
-#                    params:
-#                    - name: revision
-#                      value: $(tt.params.gitrevision)
-#                    - name: url
-#                      value: $(tt.params.gitrepositoryurl)
+
 ```
 
 Now apply it to our cluster via:
@@ -815,74 +804,147 @@ el-gitlab-listener   ClusterIP   10.100.101.207   <none>        8080/TCP,9000/TC
 
 
 
-#### Craft a Push Event
+### Create GitLab Webhook & Craft a Push test event .json
 
-See https://github.com/tektoncd/triggers/blob/main/examples/v1beta1/gitlab/gitlab-push-event.json
+What we need here is an example test event as `.json` file. For an example see https://github.com/tektoncd/triggers/blob/main/examples/v1beta1/gitlab/gitlab-push-event.json
+
+But we can craft this file ourselves while creating the GitLab Webhook.
+
+Therefore go to your project (in my example here this is https://gitlab.com/jonashackt/microservice-api-spring-boot) and head over to __Settings/Webhooks__.
+
+Now insert our a fake URL like `http://www.google.com` into the __URL__ field (we need a semantically correct url here in order to be able to save the Webhook, but will change it later to the EventListeners Ingress URL).
+
+Also insert our Secret Token `1234567` in the __Secret Token__ field.
+
+Finally choose __Push events__ and scroll down and hit __Add webhook__. 
+
+This should result in the Webhook beeing created and listed right at the bottom of this page (scroll down again) in a list called `Project Hooks`.
+
+Click on __Test__ and choose __Push events__. This will fire a test event (which will produce a HTTP error). Now scroll down again an click on __edit__. Scroll down inside our WebHook (don't get confused with the UI :)) and you should see the __Recent events__ list:
+
+![gitlab-webhook-recent-events](screenshots/gitlab-webhook-recent-events.png)
+
+Choose the latest event and click on `View details`. Scroll down again and you should see the __Request__ frame with the generated request json:
+
+![gitlab-webhook-request](screenshots/gitlab-webhook-request.png)
+
+Copy the whole part into a local file. In this example project this file is called [gitlab-push-test-event.json](tekton-ci-config/triggers/gitlab-push-test-event.json):
 
 ```json
 {
   "object_kind": "push",
   "event_name": "push",
-  "before": "1a1736ec3d7b03349b31218a2f2c572c7c7206d6",
-  "after": "1a1736ec3d7b03349b31218a2f2c572c7c7206d6",
+  "before": "5bbc8580432fc7a16f50be27eb513db42aad0860",
+  "after": "c25a74c8f919a72e3f00928917dc4ab2944ab061",
   "ref": "refs/heads/main",
-  "checkout_sha": "1a1736ec3d7b03349b31218a2f2c572c7c7206d6",
+  "checkout_sha": "c25a74c8f919a72e3f00928917dc4ab2944ab061",
   "message": null,
-  "user_id": 111448,
-  "user_name": "Dibyo Mukherjee",
-  "user_username": "dibyom",
+  "user_id": 2351133,
+  "user_name": "Jonas Hecht",
+  "user_username": "jonashackt",
   "user_email": "",
-  "user_avatar": "https://secure.gravatar.com/avatar/1d56773f447d86b8ffa33efb7a5d0cb5?s=80&d=identicon",
-  "project_id": 16507326,
+  "user_avatar": "https://secure.gravatar.com/avatar/a5c83d481ac20557b775703761aef7dc?s=80&d=identicon",
+  "project_id": 30444286,
   "project": {
-    "id": 16507326,
-    "name": "triggers",
-    "description": "",
-    "web_url": "https://gitlab.com/dibyom/triggers",
+    "id": 30444286,
+    "name": "microservice-api-spring-boot",
+    "description": "Forked from https://github.com/jonashackt/microservice-api-spring-boot",
+    "web_url": "https://gitlab.com/jonashackt/microservice-api-spring-boot",
     "avatar_url": null,
-    "git_ssh_url": "git@gitlab.com:dibyom/triggers.git",
-    "git_http_url": "https://gitlab.com/dibyom/triggers.git",
-    "namespace": "Dibyo Mukherjee",
+    "git_ssh_url": "git@gitlab.com:jonashackt/microservice-api-spring-boot.git",
+    "git_http_url": "https://gitlab.com/jonashackt/microservice-api-spring-boot.git",
+    "namespace": "Jonas Hecht",
     "visibility_level": 20,
-    "path_with_namespace": "dibyom/triggers",
+    "path_with_namespace": "jonashackt/microservice-api-spring-boot",
     "default_branch": "main",
-    "ci_config_path": null,
-    "homepage": "https://gitlab.com/dibyom/triggers",
-    "url": "git@gitlab.com:dibyom/triggers.git",
-    "ssh_url": "git@gitlab.com:dibyom/triggers.git",
-    "http_url": "https://gitlab.com/dibyom/triggers.git"
+    "ci_config_path": "",
+    "homepage": "https://gitlab.com/jonashackt/microservice-api-spring-boot",
+    "url": "git@gitlab.com:jonashackt/microservice-api-spring-boot.git",
+    "ssh_url": "git@gitlab.com:jonashackt/microservice-api-spring-boot.git",
+    "http_url": "https://gitlab.com/jonashackt/microservice-api-spring-boot.git"
   },
   "commits": [
     {
-      "id": "1a1736ec3d7b03349b31218a2f2c572c7c7206d6",
-      "message": "Add new file",
-      "timestamp": "2020-01-24T17:05:48+00:00",
-      "url": "https://gitlab.com/dibyom/triggers/-/commit/1a1736ec3d7b03349b31218a2f2c572c7c7206d6",
+      "id": "c25a74c8f919a72e3f00928917dc4ab2944ab061",
+      "message": "Fixing cache image naming\n",
+      "title": "Fixing cache image naming",
+      "timestamp": "2021-10-19T10:32:58+02:00",
+      "url": "https://gitlab.com/jonashackt/microservice-api-spring-boot/-/commit/c25a74c8f919a72e3f00928917dc4ab2944ab061",
       "author": {
-        "name": "Dibyo Mukherjee",
-        "email": "foo@bar.com"
+        "name": "Jonas Hecht",
+        "email": "jonas.hecht@codecentric.de"
       },
-      "added": ["Readme.md"],
-      "modified": [],
-      "removed": []
+      "added": [
+
+      ],
+      "modified": [
+        ".gitlab-ci.yml",
+        "README.md"
+      ],
+      "removed": [
+
+      ]
+    },
+    {
+      "id": "06a7f1d2ad646acef149b1aad4600eb2b1268f0c",
+      "message": "Merge branch 'refactor-ci' into 'main'\n\nRefactor ci\n\nSee merge request jonashackt/microservice-api-spring-boot!2",
+      "title": "Merge branch 'refactor-ci' into 'main'",
+      "timestamp": "2021-10-19T08:30:46+00:00",
+      "url": "https://gitlab.com/jonashackt/microservice-api-spring-boot/-/commit/06a7f1d2ad646acef149b1aad4600eb2b1268f0c",
+      "author": {
+        "name": "Jonas Hecht",
+        "email": "jonas.hecht@codecentric.de"
+      },
+      "added": [
+
+      ],
+      "modified": [
+        ".gitlab-ci.yml",
+        "README.md"
+      ],
+      "removed": [
+
+      ]
+    },
+    {
+      "id": "5bbc8580432fc7a16f50be27eb513db42aad0860",
+      "message": "Add cache image\n",
+      "title": "Add cache image",
+      "timestamp": "2021-10-19T10:05:31+02:00",
+      "url": "https://gitlab.com/jonashackt/microservice-api-spring-boot/-/commit/5bbc8580432fc7a16f50be27eb513db42aad0860",
+      "author": {
+        "name": "Jonas Hecht",
+        "email": "jonas.hecht@codecentric.de"
+      },
+      "added": [
+
+      ],
+      "modified": [
+        ".gitlab-ci.yml",
+        "README.md"
+      ],
+      "removed": [
+
+      ]
     }
   ],
-  "total_commits_count": 1,
-  "push_options": {},
+  "total_commits_count": 3,
+  "push_options": {
+  },
   "repository": {
-    "name": "triggers",
-    "url": "git@gitlab.com:dibyom/triggers.git",
-    "description": "",
-    "homepage": "https://gitlab.com/dibyom/triggers",
-    "git_http_url": "https://gitlab.com/dibyom/triggers.git",
-    "git_ssh_url": "git@gitlab.com:dibyom/triggers.git",
+    "name": "microservice-api-spring-boot",
+    "url": "git@gitlab.com:jonashackt/microservice-api-spring-boot.git",
+    "description": "Forked from https://github.com/jonashackt/microservice-api-spring-boot",
+    "homepage": "https://gitlab.com/jonashackt/microservice-api-spring-boot",
+    "git_http_url": "https://gitlab.com/jonashackt/microservice-api-spring-boot.git",
+    "git_ssh_url": "git@gitlab.com:jonashackt/microservice-api-spring-boot.git",
     "visibility_level": 20
   }
 }
 ```
 
 
-#### Port forward locally & Trigger Tekton EventListener via curl
+### Port forward locally & Trigger Tekton EventListener via curl
 
 Port forward with a new `Service` locally:
 
@@ -905,12 +967,12 @@ curl -v \
 -H 'X-GitLab-Token: 1234567' \
 -H 'X-Gitlab-Event: Push Hook' \
 -H 'Content-Type: application/json' \
---data-binary "@tekton-ci-config/triggers/gitlab-push-event.json" \
+--data-binary "@tekton-ci-config/triggers/gitlab-push-test-event.json" \
 http://localhost:8080
 ```
 
 
-#### Expose Tekton Trigger API on publicly on EKS
+### Expose Tekton Trigger API on publicly on EKS
 
 
 __Ingress on EKS__
@@ -935,7 +997,7 @@ Here's a simple guide on how to export our Tekton EventListener as Ingress using
 
 https://github.com/tektoncd/triggers/blob/main/docs/eventlisteners.md#exposing-an-eventlistener-using-the-nginx-ingress-controller
 
-__1. Install Nginx ingress controller:__
+#### 1. Install Nginx ingress controller
 
 ```shell
 kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.34.1/deploy/static/provider/cloud/deploy.yaml
@@ -947,14 +1009,14 @@ The docs have more details for us (https://kubernetes.github.io/ingress-nginx/de
 
 
 
-__2. Obtain the name of our EventListener:__
+#### 2. Obtain the name of our EventListener
 
 ```shell
 kubectl get eventlistener gitlab-listener -o=jsonpath='{.status.configuration.generatedName}{"\n"}'
 ```
 
 
-__3. Instantiate Ingress object:__
+#### 3. Instantiate Ingress object
 
 ```yaml
 apiVersion: networking.k8s.io/v1
@@ -981,13 +1043,13 @@ spec:
 kubectl apply -f tekton-ci-config/triggers/tekton-eventlistener-ingress.yml
 ```
 
-__4. Get Ingress object's IP address:__
+#### 4. Get Ingress object's IP address
 
 ```shell
 kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}'
 ```
 
-__5. Testdrive Trigger via curl__
+#### 5. Testdrive Trigger via curl
 
 Now let's try our `curl` using the predefined [](tekton-ci-config/triggers/gitlab-push-event.json):
 
@@ -998,7 +1060,7 @@ curl -v \
 -H 'X-GitLab-Token: 1234567' \
 -H 'X-Gitlab-Event: Push Hook' \
 -H 'Content-Type: application/json' \
---data-binary "@tekton-ci-config/triggers/gitlab-push-event.json" \
+--data-binary "@tekton-ci-config/triggers/gitlab-push-test-event.json" \
 $TEKTON_EVENTLISTENER_INGRESS_HOST
 ```
 
@@ -1020,27 +1082,128 @@ Finally we can implement all this inside our GitHub Action workflow [.github/wor
           -H 'X-GitLab-Token: 1234567' \
           -H 'X-Gitlab-Event: Push Hook' \
           -H 'Content-Type: application/json' \
-          --data-binary "@tekton-ci-config/triggers/gitlab-push-event-microservice-api-springboot.json" \
+          --data-binary "@tekton-ci-config/triggers/gitlab-push-test-event.json" \
           $TEKTON_EVENTLISTENER_INGRESS_HOST
 ```
 
 
 
+### Parameterize PipelineRun in Tekton Triggers EventListener to use values from Webhook send json 
+
+We now should extend our [gitlab-push-listener.yml](tekton-ci-config/triggers/gitlab-push-listener.yml) to use the values send by the GitLab Webhook via json.
+
+Our file now looks like this:
+
+```yaml
+apiVersion: triggers.tekton.dev/v1beta1
+kind: EventListener
+metadata:
+  name: gitlab-listener
+spec:
+  serviceAccountName: tekton-triggers-example-sa
+  triggers:
+    - name: gitlab-push-events-trigger
+      interceptors:
+        - name: "verify-gitlab-payload"
+          ref:
+            name: "gitlab"
+            kind: ClusterInterceptor
+          params:
+            - name: secretRef
+              value:
+                secretName: "gitlab-secret"
+                secretKey: "secretToken"
+            - name: eventTypes
+              value:
+                - "Push Hook"
+      bindings:
+        - name: gitrevision
+          value: $(body.checkout_sha)
+        - name: gitrepositoryurl
+          value: $(body.repository.git_http_url)
+        - name: gitrepository_pathonly
+          value: $(body.project.path_with_namespace)
+      template:
+        spec:
+          params:
+            - name: gitrevision
+            - name: gitrepositoryurl
+            - name: gitrepository_pathonly
+            - name: message
+              description: The message to print
+              default: This is the default message
+            - name: contenttype
+              description: The Content-Type of the event
+          resourcetemplates:
+            - apiVersion: tekton.dev/v1beta1
+              kind: PipelineRun
+              metadata:
+                generateName: buildpacks-test-pipeline-run-
+              spec:
+                serviceAccountName: buildpacks-service-account-gitlab
+                pipelineRef:
+                  name: buildpacks-test-pipeline
+                workspaces:
+                  - name: source-workspace
+                    subPath: source
+                    persistentVolumeClaim:
+                      claimName: buildpacks-source-pvc
+                  - name: cache-workspace
+                    subPath: cache
+                    persistentVolumeClaim:
+                      claimName: buildpacks-source-pvc
+                params:
+                  - name: IMAGE
+                    value: "registry.gitlab.com/$(tt.params.gitrepository_pathonly)" #here our GitLab's registry url must be configured
+                  - name: SOURCE_URL
+                    value: $(tt.params.gitrepositoryurl)
+                  - name: SOURCE_REVISION
+                    value: $(tt.params.gitrevision)
+```
+
+There's not so much that changes here. The param `SOURCE_URL` will be provided the git repo url via `$(tt.params.gitrepositoryurl)` - this is done using the `tt.params` notation [as the docs state](https://tekton.dev/docs/triggers/triggertemplates/#specifying-parameters).
+
+The same is used for `SOURCE_REVISION`. Both parameters must be defined in the `template:spec:params` section also. 
+
+And they must all be defined in the TriggerBinding inside the `bindings` section. Here we read the values from the parsed json request from GitLab using the `$(body.key1)` notation - see [the docs on TriggerBindings json payload access](https://tekton.dev/docs/triggers/triggerbindings/#accessing-data-in-http-json-payloads).
+
+Finally we also read another value in the `bindings` section: the `gitrepository_pathonly` value will be obtained from `$(body.project.path_with_namespace)` - which represents our GitLab repo's group and repo names. In this example this is `jonashackt/microservice-api-spring-boot`.
+
+But what do we need this value for? You'll see it inside the `IMAGE` parameter of the `PipelineRun` definition inside the TriggerTemplate. 
+
+With `value: "registry.gitlab.com/$(tt.params.gitrepository_pathonly)"` we use the `gitrepository_pathonly` to craft the correct GitLab Container Registry URL with the predefined GitLab CR domain name and the appended group and repo name.
+
+
+#### Test GitLab Webhook with Ingress URL
+
+Go to your project (in my example here this is https://gitlab.com/jonashackt/microservice-api-spring-boot) and head over to __Settings/Webhooks__.
+
+Now insert our Tekton Triggers EventListener URL into the already created Webhook's __URL__ field (). Remember you can obtain the URL via
+
+```shell
+kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+```
+
+You need to scroll down to __Project Hooks__ and __edit__ your existing Webhook.
+
+Finally Test-drive the Webhook again choosing __Test__ and __Push event__ from the drop down.
+
+Switch to the Tekton Dashboard in your Browser and you should see the PipelineRun triggered:
+
+![tekton-triggers-pipelinerun-triggered-through-gitlab-webhook](screenshots/tekton-triggers-pipelinerun-triggered-through-gitlab-webhook.png)
 
 
 
 
-
-
-#### commit-status-tracker
 
 
 
 
 # Ideas
 
+#### commit-status-tracker
 
-###### Deploy AWS Load Balancer Controller
+#### Deploy AWS Load Balancer Controller
 
 > The AWS ALB Ingress Controller has been rebranded to AWS Load Balancer Controller.
 
