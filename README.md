@@ -1234,7 +1234,7 @@ Now we can use these GitHub repo secrets to create the actual Kubernetes secret 
 
 ```yaml
           kubectl create secret generic gitlab-api-secret \
-          --from-literal=token=${{ secrets.GITLAB_API_TOKEN }}
+          --from-literal=token=${{ secrets.GITLAB_API_TOKEN }} \
           --namespace default \
           --save-config --dry-run=client -o yaml | kubectl apply -f -
 ```
