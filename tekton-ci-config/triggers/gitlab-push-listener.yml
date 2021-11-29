@@ -60,5 +60,11 @@ spec:
                     value: "registry.gitlab.com/$(tt.params.gitrepository_pathonly)" #here our GitLab's registry url must be configured
                   - name: SOURCE_URL
                     value: $(tt.params.gitrepositoryurl)
+                  - name: REPO_PATH_ONLY
+                    value: $(tt.params.gitrepository_pathonly)
                   - name: SOURCE_REVISION
                     value: $(tt.params.gitrevision)
+                  - name: GITLAB_HOST
+                    value: gitlab.com
+                  - name: TEKTON_DASHBOARD_HOST
+                    value: {{TEKTON_DASHBOARD_HOST}}

@@ -10,16 +10,50 @@ spec:
     - name: SOURCE_URL
       type: string
       description: A git repo url where the source code resides.
+    - name: REPO_PATH_ONLY
+      type: string
+      description: GitLab group & repo name only (e.g. jonashackt/microservice-api-spring-boot)
     - name: SOURCE_REVISION
       description: The branch, tag or SHA to checkout.
       default: ""
+    - name: GITLAB_HOST
+      type: string
+      description: Your GitLabs host only (e.g. gitlab.com)
+    - name: TEKTON_DASHBOARD_HOST
+      type: string
+      description: The Tekton dashboard host name only
+
   workspaces:
     - name: source-workspace # Directory where application source is located. (REQUIRED)
     - name: cache-workspace # Directory where cache is stored (OPTIONAL)
   tasks:
+    - name: report-pipeline-start-to-gitlab
+      taskRef:
+        name: gitlab-set-status
+      params:
+        - name: "STATE"
+          value: "running"
+        - name: "GITLAB_HOST_URL"
+          value: "$(params.GITLAB_HOST)"
+        - name: "REPO_FULL_NAME"
+          value: "$(params.REPO_PATH_ONLY)"
+        - name: "GITLAB_TOKEN_SECRET_NAME"
+          value: "gitlab-api-secret"
+        - name: "GITLAB_TOKEN_SECRET_KEY"
+          value: "token"
+        - name: "SHA"
+          value: "$(params.SOURCE_REVISION)"
+        - name: "TARGET_URL"
+          value: "$(params.TEKTON_DASHBOARD_HOST)/#/namespaces/default/pipelineruns/$(context.pipelineRun.name)"
+        - name: "CONTEXT"
+          value: "tekton-pipeline"
+        - name: "DESCRIPTION"
+          value: "Building your commit in Tekton"
     - name: fetch-repository # This task fetches a repository from github, using the `git-clone` task you installed
       taskRef:
         name: git-clone
+      runAfter:
+        - report-pipeline-start-to-gitlab
       workspaces:
         - name: output
           workspace: source-workspace
@@ -47,3 +81,27 @@ spec:
           value: "$(params.IMAGE)"
         - name: BUILDER_IMAGE
           value: paketobuildpacks/builder:base # This is the builder we want the task to use (REQUIRED)
+    - name: report-pipeline-end-to-gitlab
+      taskRef:
+        name: "gitlab-set-status"
+      runAfter:
+        - buildpacks
+      params:
+        - name: "STATE"
+          value: "success"
+        - name: "GITLAB_HOST_URL"
+          value: "$(params.GITLAB_HOST)"
+        - name: "REPO_FULL_NAME"
+          value: "$(params.REPO_PATH_ONLY)"
+        - name: "GITLAB_TOKEN_SECRET_NAME"
+          value: "gitlab-api-secret"
+        - name: "GITLAB_TOKEN_SECRET_KEY"
+          value: "token"
+        - name: "SHA"
+          value: "$(params.SOURCE_REVISION)"
+        - name: "TARGET_URL"
+          value: "$(params.TEKTON_DASHBOARD_HOST)/#/namespaces/default/pipelineruns/$(context.pipelineRun.name)"
+        - name: "CONTEXT"
+          value: "tekton-pipeline"
+        - name: "DESCRIPTION"
+          value: "Finished building your commit in Tekton"
