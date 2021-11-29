@@ -972,7 +972,7 @@ http://localhost:8080
 ```
 
 
-### Expose Tekton Trigger API on publicly on EKS
+### Expose Tekton Trigger API on publicly on EKS & Trigger Tekton EventListener
 
 
 __Ingress on EKS__
@@ -1196,10 +1196,191 @@ Switch to the Tekton Dashboard in your Browser and you should see the PipelineRu
 
 
 
+## Report Tekton Pipeline Status back to GitLab 
+
+The last step in our journey of integrating GitLab with Tekton is to report the status of our Tekton Pipelines back to GitLab.
+
+There are multiple options. Let's first start simple using the Tekton Hub task https://hub.tekton.dev/tekton/task/gitlab-set-status
+
+
+#### Install gitlab-set-status Task
+
+Inside our [provision.yml](.github/workflows/provision.yml) workflow we need to install the gitlab-set-status Task:
+
+```shell
+kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/gitlab-set-status/0.1/gitlab-set-status.yaml
+```
+
+
+#### Create Access Token
+
+To access the GitLab commit API (see https://docs.gitlab.com/ee/api/commits.html#post-the-build-status-to-a-commit) using the `gitlab-set-status` task we need to create an access token as stated in https://docs.gitlab.com/ee/api/index.html#authentication
+
+On self-managed GitLab instances you can create project access tokens for example.
+
+Using gitlab.com we cannot use project access tokens, but can create personal access tokens instead: https://docs.gitlab.com/ee/user/profile/personal_access_tokens.html#create-a-personal-access-token
+
+Therefore head over to __Edit profile__ and choose __Access Tokens__ on the left. Then create a token called `gitlab-api-token` for example:
+
+![gitlab-personal-access-token](screenshots/gitlab-personal-access-token.png)
+
+Now since we're using GitHub Actions to provision our EKS cluster and install Tekton, we need to enhance our [provision.yml](.github/workflows/provision.yml) workflow.
+
+First create a new GitHub repository secret `GITLAB_API_TOKEN` containing the personal access token which we just created:
+
+![github-repository-secret-for-gitlab-api](screenshots/github-repository-secrets-for-gitlab-api.png)
+
+Now we can use these GitHub repo secrets to create the actual Kubernetes secret in our [provision.yml](.github/workflows/provision.yml) workflow:
+
+```yaml
+          kubectl create secret generic gitlab-api-secret \
+          --from-literal=token=${{ secrets.GITLAB_API_TOKEN }}
+          --namespace default \
+          --save-config --dry-run=client -o yaml | kubectl apply -f -
+```
+
+
+#### Create task leveraging gitlab-set-status
+
+Using the Tekton Hub task https://hub.tekton.dev/tekton/task/gitlab-set-status we can create a new step inside our [Tekton Pipeline](tekton-ci-config/pipeline.yml). But first ne need to create some new parameters for our Pipeline:
+
+```yaml
+  params:
+    ...
+    - name: REPO_PATH_ONLY
+      type: string
+      description: GitLab group & repo name only (e.g. jonashackt/microservice-api-spring-boot)
+    ...
+    - name: GITLAB_HOST
+      type: string
+      description: Your GitLabs host only (e.g. gitlab.com)
+    - name: TEKTON_DASHBOARD_HOST
+      type: string
+      description: The Tekton dashboard host name only
+```
+
+Now we can implement the task:
+
+```yaml
+    - name: report-pipeline-end-to-gitlab
+      taskRef:
+        name: "gitlab-set-status"
+      runAfter:
+        - buildpacks
+      params:
+        - name: "STATE"
+          value: "success"
+        - name: "GITLAB_HOST_URL"
+          value: "$(params.GITLAB_HOST)"
+        - name: "REPO_FULL_NAME"
+          value: "$(params.REPO_PATH_ONLY)"
+        - name: "GITLAB_TOKEN_SECRET_NAME"
+          value: "gitlab-api-secret"
+        - name: "GITLAB_TOKEN_SECRET_KEY"
+          value: "token"
+        - name: "SHA"
+          value: "$(params.SOURCE_REVISION)"
+        - name: "TARGET_URL"
+          value: "$(params.TEKTON_DASHBOARD_HOST)/#/namespaces/default/pipelineruns/$(context.pipelineRun.name)"
+        - name: "CONTEXT"
+          value: "tekton-pipeline"
+        - name: "DESCRIPTION"
+          value: "Finished building your commit in Tekton"
+```
+
+First we should make sure this task runs only after the `buildpacks` task using `runAfter`.
+
+Then we need to provide the `GITLAB_HOST_URL` and `REPO_FULL_NAME`.
+
+Also the `GITLAB_TOKEN_SECRET_NAME` needs to refer to the Kubernetes secret `gitlab-api-secret` we created leveraging a Personal Access Token. The `GITLAB_TOKEN_SECRET_KEY` must reference to the `key` name inside the `kubectl create secret` command, where we used `--from-literal=token=${{ secrets.GITLAB_API_TOKEN }}`. So the `GITLAB_TOKEN_SECRET_KEY` is `token` here (which is also the default).
+
+The `TARGET_URL` is a bit more tricky and needs to be crafted with care:
+
+```yaml
+        - name: "TARGET_URL"
+          value: "$(params.TEKTON_DASHBOARD_HOST)/#/namespaces/default/pipelineruns/$(context.pipelineRun.name)"
+```
+
+It consists of the Tekton dashboard host `$(params.TEKTON_DASHBOARD_HOST)` and the Pipeline details prefix `/#/namespaces/default/pipelineruns/`. The `$(context.pipelineRun.name)` finally gives us the current PipelineRun's name we need to be able to reference the actual PipelineRun from the GitLab UI.
+
+Finally the `CONTEXT` and `DESCRIPTION` should contain useful information to be displayed in the GitLab UI later:
+
+![gitlab-set-status-detail-finished](screenshots/gitlab-set-status-detail-finished.png)
+
+
+#### Add new gitlab-set-status parameters to PipelineRun and EventListener
+
+Our [pipeline-run.yml](tekton-ci-config/pipeline-run.yml) (for manual triggering):
+
+```yaml
+...
+  params:
+    - name: IMAGE
+      value: registry.gitlab.com/jonashackt/microservice-api-spring-boot # This defines the name of output image
+    - name: SOURCE_URL
+      value: https://gitlab.com/jonashackt/microservice-api-spring-boot
+    - name: REPO_PATH_ONLY
+      value: jonashackt/microservice-api-spring-boot
+    - name: SOURCE_REVISION
+      value: main
+    - name: GITLAB_HOST
+      value: gitlab.com
+    - name: TEKTON_DASHBOARD_HOST
+      value: http://abd1c6f235c9642bf9d4cdf632962298-1232135946.eu-central-1.elb.amazonaws.com
+```
+
+and the [EventListener](tekton-ci-config/triggers/gitlab-push-listener.yml) (for automatic triggering by our gitlab.com projects) need to pass some new parameters in order to get the `gitlab-set-status` task working:
+
+```yaml
+                params:
+                  - name: IMAGE
+                    value: "registry.gitlab.com/$(tt.params.gitrepository_pathonly)" #here our GitLab's registry url must be configured
+                  - name: SOURCE_URL
+                    value: $(tt.params.gitrepositoryurl)
+                  - name: REPO_PATH_ONLY
+                    value: $(tt.params.gitrepository_pathonly)
+                  - name: SOURCE_REVISION
+                    value: $(tt.params.gitrevision)
+                  - name: GITLAB_HOST
+                    value: gitlab.com
+                  - name: TEKTON_DASHBOARD_HOST
+                    value: {{TEKTON_DASHBOARD_HOST}}
+```
+
+Adding the `REPO_PATH_ONLY` is no problem, since we alread used `$(tt.params.gitrepository_pathonly)` inside the `IMAGE` parameter. As with the GitLab registry url we can also "hard code" the `GITLAB_HOST` here for now.
+
+The `TEKTON_DASHBOARD_HOST` is the trickiest part, since we need to substitute this value from outside of the Tekton Trigger process, which doesn't know about the Tekton dashboard url.
+
+But luckily inside our GitHub Actions [provision.yml](.github/workflows/provision.yml) workflow we can use https://stackoverflow.com/questions/48296082/how-to-set-dynamic-values-with-kubernetes-yaml-file/70152914#70152914:
+
+```yaml
+          echo "--- Insert Tekton dashboard url into EventListener config and apply it (see https://stackoverflow.com/a/70152914/4964553)"
+          TEKTON_DASHBOARD_HOST="${{ steps.dashboard-expose.outputs.dashboard_host }}"
+          sed "s#{{TEKTON_DASHBOARD_HOST}}#$TEKTON_DASHBOARD_HOST#g" tekton-ci-config/triggers/gitlab-push-listener.yml | kubectl apply -f -
+```
+
+Using sed we simply replace `{{TEKTON_DASHBOARD_HOST}}` with the already defined GitHub Actions variable `${{ steps.dashboard-expose.outputs.dashboard_host }}`.
+
+Testing our full workflow is simple pushing a change to our repo using a branch without GitLab CI: https://gitlab.com/jonashackt/microservice-api-spring-boot/-/commits/trigger-tekton-via-webhook
+
+Now our GitLab Pipelines view gets filled with a Tekton Pipelines status (`success` only for now):
+
+![gitlab-set-status-finished](screenshots/gitlab-set-status-finished.png)
+
+
+#### Reporting `running` status to GitLab
+
+![gitlab-set-status-running](screenshots/gitlab-set-status-running.png)
+
+![gitlab-set-status-detail-running](screenshots/gitlab-set-status-detail-running.png)
 
 
 
 # Ideas
+
+https://hub.tekton.dev/tekton/task/gitlab-set-status
+
+https://hub.tekton.dev/tekton/task/create-gitlab-release
 
 #### commit-status-tracker
 
