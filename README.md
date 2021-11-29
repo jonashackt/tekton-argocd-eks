@@ -1539,12 +1539,20 @@ In the end this results in our [Tekton Pipeline's](tekton-ci-config/pipeline.yml
           value: "Finished building your commit in Tekton"
 ```
 
+Executing our Tekton Pipeline should now be reported correctly to our GitLab. Failures look like this:
+
+![gitlab-set-status-failed](screenshots/gitlab-set-status-failed.png)
+
+and in the detail view:
+
+![gitlab-set-status-detail-failed](screenshots/gitlab-set-status-detail-failed.png)
+
+The solution is based on https://stackoverflow.com/questions/70156006/report-tekton-pipeline-status-to-gitlab-regardless-if-pipeline-failed-or-succeed/70156007#70156007.
+
 
 
 
 # Ideas
-
-https://hub.tekton.dev/tekton/task/gitlab-set-status
 
 https://hub.tekton.dev/tekton/task/create-gitlab-release
 
