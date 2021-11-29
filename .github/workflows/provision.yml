@@ -157,7 +157,7 @@ jobs:
           --param REPO_PATH_ONLY=jonashackt/microservice-api-spring-boot \
           --param SOURCE_REVISION=main \
           --param GITLAB_HOST=gitlab.com \
-          --param TEKTON_DASHBOARD_HOST \
+          --param TEKTON_DASHBOARD_HOST="${{ steps.dashboard-expose.outputs.dashboard_host }}" \
           --dry-run \
           --output yaml > pipelinerun.yml
 
