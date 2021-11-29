@@ -1,7 +1,9 @@
-# pulumi-eks-tekton
-[![Build Status](https://github.com/jonashackt/pulumi-eks-tekton/workflows/provision/badge.svg)](https://github.com/jonashackt/pulumi-eks-tekton/actions)
+# aws-eks-tekton-gitlab
+[![Build Status](https://github.com/jonashackt/aws-eks-tekton-gitlab/workflows/provision/badge.svg)](https://github.com/jonashackt/aws-eks-tekton-gitlab/actions)
+[![License](http://img.shields.io/:license-mit-blue.svg)](https://github.com/jonashackt/aws-eks-tekton-gitlab/blob/master/LICENSE)
+[![renovateenabled](https://img.shields.io/badge/renovate-enabled-yellow)](https://renovatebot.com)
 
-This Demo repository will deploy and configure a Tekton CI System with Flux on Amazon EKS.
+This Demo repository shows how to deploy and configure [Tekton](https://tekton.dev/) on Amazon EKS and integrate Tekton with GitLab (especially https://gitlab.com/jonashackt/microservice-api-spring-boot).
 
 
 # EKS with Pulumi
@@ -258,7 +260,7 @@ tkn taskrun logs --last -f
 ```
 
 
-### Tekton Dashboard
+# Tekton Dashboard
 
 https://tekton.dev/docs/dashboard/
 
@@ -277,7 +279,7 @@ kubectl proxy --port=8080
 Then open your Browser at http://localhost:8080/api/v1/namespaces/tekton-pipelines/services/tekton-dashboard:http/proxy/
 
 
-#### Expose Tekton Dashboard publicly on EKS
+### Expose Tekton Dashboard publicly on EKS
 
 The ultra simple (but only PoC grade) solution to expose an public endpoint on a Cloud Provider's managed K8s is to use a `Service` with type `LoadBalancer`. As the docs state (https://kubernetes.io/docs/concepts/services-networking/service/#loadbalancer):
 
@@ -288,7 +290,7 @@ And also the AWS EKS docs state this (https://docs.aws.amazon.com/eks/latest/use
 > When you create a Kubernetes Service of type LoadBalancer, an AWS Network Load Balancer (NLB) is provisioned that load balances network traffic.
 
 
-##### Service yaml
+### Service yaml
 
 So this would be our ultra simple Service to access our Tekton Dashboard (see [tekton-dashboard-service.yml](tekton-dashboard-service.yml)):
 
@@ -315,7 +317,7 @@ First we `apply` our [tekton-dashboard-service.yml](tekton-dashboard-service.yml
 kubectl apply -f tekton-dashboard-service.yml -n tekton-pipelines
 ```
 
-##### Wait until AWS ELB is provisioned & populated into `status.loadBalancer.ingress[0].hostname`
+### Wait until AWS ELB is provisioned & populated into `status.loadBalancer.ingress[0].hostname`
 
 Then we have to wait until our AWS ELB LoadBalancer is provisioned. [As stated](https://kubernetes.io/docs/concepts/services-networking/service/#loadbalancer) the
 
@@ -381,7 +383,7 @@ until kubectl get service/tekton-dashboard-external-svc-manual -n tekton-pipelin
 ```
 
 
-##### Grab the Tekton Dashboard URL and populate as GitHub Environment
+### Grab the Tekton Dashboard URL and populate as GitHub Environment
 
 Now that our AWS ELB is provisioned we can finally grad it's URL with:
 
@@ -400,16 +402,11 @@ echo "::set-output name=dashboard_host::http://$DASHBOARD_HOST"
 
 
 
-
-
-
-
-
-### Cloud Native Buildpacks
+# Cloud Native Buildpacks
 
 https://buildpacks.io/docs/tools/tekton/
 
-#### Install Tasks
+### Install Tasks
 
 Install [git clone](https://hub.tekton.dev/tekton/task/git-clone) and [buildpacks](https://hub.tekton.dev/tekton/task/buildpacks) Task:
 ```shell
@@ -417,7 +414,7 @@ kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/master/task/
 kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/master/task/buildpacks/0.3/buildpacks.yaml
 ```
 
-#### Create Secret for GitLab Container Registry authorization
+### Create Secret for GitLab Container Registry authorization
 
 To access the GitLab Container Registry we need to first create a PAT or deploy token (see https://docs.gitlab.com/ee/user/packages/container_registry/#authenticate-with-the-container-registry)
 
@@ -466,7 +463,7 @@ secrets:
   - name: docker-user-pass
 ```
 
-#### Create buildpacks PVC 
+### Create buildpacks PVC 
 
 https://buildpacks.io/docs/tools/tekton/#41-pvcs
 
@@ -485,7 +482,7 @@ spec:
       storage: 500Mi
 ```
 
-#### Create Pipeline
+### Create Pipeline
 
 Create [pipeline.yml](tekton-ci-config/pipeline.yml):
 
@@ -557,7 +554,7 @@ And now apply all three configs with:
 kubectl apply -f tekton-ci-config/resources.yml -f tekton-ci-config/ghcr-service-account.yml -f tekton-ci-config/pipeline.yml
 ```
 
-#### Create PipelineRun
+### Create PipelineRun
 
 Create [pipeline-run.yml](tekton-ci-config/pipeline-run.yml):
 
@@ -604,6 +601,8 @@ kubectl apply -f tekton-ci-config/pipeline-run.yml
 Looking into the Tekton dashboard we should now finally see a successful Pipeline run:
 
 ![successful-tekton-buildpacks-pipeline-run](screenshots/successful-tekton-buildpacks-pipeline-run.png)
+
+
 
 
 # Integrate Tekton on EKS with GitLab.com
@@ -972,7 +971,7 @@ http://localhost:8080
 ```
 
 
-### Expose Tekton Trigger API on publicly on EKS & Trigger Tekton EventListener
+## Expose Tekton Trigger API on publicly on EKS & Trigger Tekton EventListener
 
 
 __Ingress on EKS__
@@ -1196,14 +1195,14 @@ Switch to the Tekton Dashboard in your Browser and you should see the PipelineRu
 
 
 
-## Report Tekton Pipeline Status back to GitLab 
+# Report Tekton Pipeline Status back to GitLab 
 
 The last step in our journey of integrating GitLab with Tekton is to report the status of our Tekton Pipelines back to GitLab.
 
 There are multiple options. Let's first start simple using the Tekton Hub task https://hub.tekton.dev/tekton/task/gitlab-set-status
 
 
-#### Install gitlab-set-status Task
+### Install gitlab-set-status Task
 
 Inside our [provision.yml](.github/workflows/provision.yml) workflow we need to install the gitlab-set-status Task:
 
@@ -1212,7 +1211,7 @@ kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/gi
 ```
 
 
-#### Create Access Token
+### Create Access Token
 
 To access the GitLab commit API (see https://docs.gitlab.com/ee/api/commits.html#post-the-build-status-to-a-commit) using the `gitlab-set-status` task we need to create an access token as stated in https://docs.gitlab.com/ee/api/index.html#authentication
 
@@ -1240,7 +1239,7 @@ Now we can use these GitHub repo secrets to create the actual Kubernetes secret 
 ```
 
 
-#### Create task leveraging gitlab-set-status
+### Create task leveraging gitlab-set-status
 
 Using the Tekton Hub task https://hub.tekton.dev/tekton/task/gitlab-set-status we can create a new step inside our [Tekton Pipeline](tekton-ci-config/pipeline.yml). But first ne need to create some new parameters for our Pipeline:
 
@@ -1308,7 +1307,7 @@ Finally the `CONTEXT` and `DESCRIPTION` should contain useful information to be 
 ![gitlab-set-status-detail-finished](screenshots/gitlab-set-status-detail-finished.png)
 
 
-#### Add new gitlab-set-status parameters to PipelineRun and EventListener
+### Add new gitlab-set-status parameters to PipelineRun and EventListener
 
 Our [pipeline-run.yml](tekton-ci-config/pipeline-run.yml) (for manual triggering):
 
@@ -1368,7 +1367,7 @@ Now our GitLab Pipelines view gets filled with a Tekton Pipelines status (`succe
 ![gitlab-set-status-finished](screenshots/gitlab-set-status-finished.png)
 
 
-#### Reporting `running` status to GitLab
+### Reporting `running` status to GitLab
 
 Now that we generally know how to use the `gitlab-set-status` Task, we could also use another Task definition to report the starting of a Tekton Pipeline run to GitLab UI.
 
@@ -1414,7 +1413,7 @@ And in the details view we can directly access our running Tekton Pipeline via a
 ![gitlab-set-status-detail-running](screenshots/gitlab-set-status-detail-running.png)
 
 
-#### Reporting `failed` status to GitLab
+### Reporting `failed` status to GitLab
 
 How do we catch all status from our Tekton pipeline and then report based on that to GitLab?
 
@@ -1556,7 +1555,67 @@ The solution is based on https://stackoverflow.com/questions/70156006/report-tek
 
 https://hub.tekton.dev/tekton/task/create-gitlab-release
 
-#### commit-status-tracker
+### GitLab and Tekton
+
+https://www.youtube.com/watch?v=skcLi9-WTkA
+
+https://gitlab.com/gitlab-org/gitlab/-/issues/213360
+
+https://cloud.google.com/tekton
+
+https://www.reddit.com/r/kubernetes/comments/p0x9cv/what_is_tekton_and_how_it_compares_to_jenkins/h89tyxb/
+
+### ChatOps with Bots
+
+Why not use a Chat bot to do the job?
+
+-> If I push, a bot asks me to assign another person for the pull request
+
+#### prow
+
+- see Kubernetes github project: prow comments on every pull request
+
+https://archive.fosdem.org/2021/schedule/event/ci_on_gitlab_ringing_gitlab_tekton_and_prow_together/
+
+prow is GitHub specific, so what's the alternative?
+
+> rather than being GitHub specific Lighthouse uses jenkins-x/go-scm so it can support any Git provider (while Lighthouse reuses the Prow plugin source code and a bunch of plugins from Prow)
+
+#### Jenkins X lighthouse
+
+https://jenkins-x.io/v3/about/what/#chatops
+
+> With the ever growing number of microservices needing automation, Jenkins X provides the ability to interact with pipelines via comments on pull requests. Lighthouse has evolved from Prow which is used heavily in the Kubernetes ecosystem to provide a consistent developer workflow for triggering tests, approvals, hold and other common commands developers use in their everyday activities
+
+https://github.com/jenkins-x/lighthouse
+
+> Lighthouse is a lightweight ChatOps based webhook handler which can trigger Jenkins X Pipelines, Tekton Pipelines or Jenkins Jobs based on webhooks from multiple git providers such as GitHub, GitHub Enterprise, BitBucket Server and GitLab.
+
+
+#### Lighthouse Tekton Integration with GitLab
+
+https://github.com/jenkins-x/lighthouse/blob/main/docs/install_lighthouse_with_tekton.md
+
+lighthouse-foghorn: watches execution of Tekton `PipelineRun` triggered by lighthouse and updates AND BLOCKS pull requests from beeing merged until Tekton pipelines succeeded
+
+And more:
+
+![lighthouse-components](screenshots/lighthouse-components.png)
+
+--> Lighthouse Tekton integration misses JSON-payload proceeding to Tekton Pipelines/Tasks!
+
+
+## Tekton Triggers
+
+GitLab Webhooks --> trigger Tekton Triggers
+
+https://github.com/tektoncd/triggers
+
+
+#### No GUI info
+
+https://github.com/tektoncd/experimental/tree/main/commit-status-tracker
+
 
 #### Deploy AWS Load Balancer Controller
 
