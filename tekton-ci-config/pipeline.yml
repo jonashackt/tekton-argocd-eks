@@ -81,11 +81,40 @@ spec:
           value: "$(params.IMAGE)"
         - name: BUILDER_IMAGE
           value: paketobuildpacks/builder:base # This is the builder we want the task to use (REQUIRED)
-    - name: report-pipeline-end-to-gitlab
+  finally:
+    - name: report-pipeline-failed-to-gitlab
+      when:
+        - input: $(tasks.status)
+          operator: in
+          values: [ "Failed", "None" ] # see aggregated status https://tekton.dev/docs/pipelines/pipelines/#using-aggregate-execution-status-of-all-tasks
       taskRef:
         name: "gitlab-set-status"
-      runAfter:
-        - buildpacks
+      params:
+        - name: "STATE"
+          value: "failed"
+        - name: "GITLAB_HOST_URL"
+          value: "$(params.GITLAB_HOST)"
+        - name: "REPO_FULL_NAME"
+          value: "$(params.REPO_PATH_ONLY)"
+        - name: "GITLAB_TOKEN_SECRET_NAME"
+          value: "gitlab-api-secret"
+        - name: "GITLAB_TOKEN_SECRET_KEY"
+          value: "token"
+        - name: "SHA"
+          value: "$(params.SOURCE_REVISION)"
+        - name: "TARGET_URL"
+          value: "$(params.TEKTON_DASHBOARD_HOST)/#/namespaces/default/pipelineruns/$(context.pipelineRun.name)"
+        - name: "CONTEXT"
+          value: "tekton-pipeline"
+        - name: "DESCRIPTION"
+          value: "An error occurred building your commit in Tekton"
+    - name: report-pipeline-success-to-gitlab
+      when:
+          - input: $(tasks.status)
+            operator: in
+            values: [ "Succeeded", "Completed" ] # see aggregated status https://tekton.dev/docs/pipelines/pipelines/#using-aggregate-execution-status-of-all-tasks
+      taskRef:
+        name: "gitlab-set-status"
       params:
         - name: "STATE"
           value: "success"

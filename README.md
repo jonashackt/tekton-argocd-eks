@@ -1370,9 +1370,175 @@ Now our GitLab Pipelines view gets filled with a Tekton Pipelines status (`succe
 
 #### Reporting `running` status to GitLab
 
+Now that we generally know how to use the `gitlab-set-status` Task, we could also use another Task definition to report the starting of a Tekton Pipeline run to GitLab UI.
+
+Therefore we enhance our [Tekton Pipeline](tekton-ci-config/pipeline.yml) with a new Task starting the whole Pipeline called `report-pipeline-start-to-gitlab`:
+
+```yaml
+  tasks:
+    - name: report-pipeline-start-to-gitlab
+      taskRef:
+        name: gitlab-set-status
+      params:
+        - name: "STATE"
+          value: "running"
+        - name: "GITLAB_HOST_URL"
+          value: "$(params.GITLAB_HOST)"
+        - name: "REPO_FULL_NAME"
+          value: "$(params.REPO_PATH_ONLY)"
+        - name: "GITLAB_TOKEN_SECRET_NAME"
+          value: "gitlab-api-secret"
+        - name: "GITLAB_TOKEN_SECRET_KEY"
+          value: "token"
+        - name: "SHA"
+          value: "$(params.SOURCE_REVISION)"
+        - name: "TARGET_URL"
+          value: "$(params.TEKTON_DASHBOARD_HOST)/#/namespaces/default/pipelineruns/$(context.pipelineRun.name)"
+        - name: "CONTEXT"
+          value: "tekton-pipeline"
+        - name: "DESCRIPTION"
+          value: "Building your commit in Tekton"
+    - name: fetch-repository # This task fetches a repository from github, using the `git-clone` task you installed
+      taskRef:
+        name: git-clone
+      runAfter:
+        - report-pipeline-start-to-gitlab
+```
+
+And the `fetch-repository` only starts after the status is reported to GitLab. With this new Task in place a push to our repository https://gitlab.com/jonashackt/microservice-api-spring-boot __directly__ presents a `running` Pipeline inside the GitLab UI: 
+
 ![gitlab-set-status-running](screenshots/gitlab-set-status-running.png)
 
+And in the details view we can directly access our running Tekton Pipeline via a correct Tekton dashboard link:
+
 ![gitlab-set-status-detail-running](screenshots/gitlab-set-status-detail-running.png)
+
+
+#### Reporting `failed` status to GitLab
+
+How do we catch all status from our Tekton pipeline and then report based on that to GitLab?
+
+[In v0.14 Tekton introduced finally Tasks](https://github.com/tektoncd/pipeline/releases/tag/v0.14.0), which run at the end of every PipelineRun - regardless which Task failed or succeeded. [As the docs state](https://tekton.dev/docs/pipelines/pipelines/#adding-finally-to-the-pipeline):
+
+> finally tasks are guaranteed to be executed in parallel after all PipelineTasks under tasks have completed regardless of success or error.
+
+Finally tasks look like this:
+
+```yaml
+spec:
+  tasks:
+    - name: tests
+      taskRef:
+        name: integration-test
+  finally:
+    - name: cleanup-test
+      taskRef:
+        name: cleanup
+```
+
+With [Guard[ing] finally Task execution using when expressions](https://tekton.dev/docs/pipelines/pipelines/#guard-finally-task-execution-using-when-expressions) we can enhance this even further.
+
+Because using `when` expressions we can run Tasks based on the overall Pipeline status (or Aggregate Pipeline status) - see https://tekton.dev/docs/pipelines/pipelines/#when-expressions-using-aggregate-execution-status-of-tasks-in-finally-tasks
+
+```yaml
+finally:
+  - name: notify-any-failure # executed only when one or more tasks fail
+    when:
+      - input: $(tasks.status)
+        operator: in
+        values: ["Failed"]
+    taskRef:
+      name: notify-failure
+```
+
+The [Aggregate Execution Status](https://tekton.dev/docs/pipelines/pipelines/#using-aggregate-execution-status-of-all-tasks) we can grap using `$(tasks.status)` is stated to have those 4 possible status:
+
+`Succeeded` ("all tasks have succeeded") or `Completed` ("all tasks completed successfully including one or more skipped tasks"), which could be translated into the `gitlab-set-status` Tasks `STATE` value `success`.
+
+And `Failed` ("one ore more tasks failed") or `None` ("no aggregate execution status available (i.e. none of the above), one or more tasks could be pending/running/cancelled/timedout"), which could both be translated into the `gitlab-set-status` Tasks `STATE` value `failed`. For `None` this is only valid, since we're in a `finally task`, since `pending/running` could otherwise also mean that a Pipeline is in a good state. 
+
+Luckily the `when` expressions
+
+> [values is an array of string values.](https://tekton.dev/docs/pipelines/pipelines/#guard-task-execution-using-when-expressions)
+
+So we're able to do 
+
+```yaml
+  when:
+    - input: $(tasks.status)
+      operator: in
+      values: [ "Failed", "None" ]
+```
+
+and
+
+```yaml
+  when:
+    - input: $(tasks.status)
+      operator: in
+      values: [ "Succeeded", "Completed" ]
+```
+
+
+In the end this results in our [Tekton Pipeline's](tekton-ci-config/pipeline.yml) `finally` block locking like this:
+
+```yaml
+...
+  finally:
+    - name: report-pipeline-failed-to-gitlab
+      when:
+        - input: $(tasks.status)
+          operator: in
+          values: [ "Failed", "None" ] # see aggregated status https://tekton.dev/docs/pipelines/pipelines/#using-aggregate-execution-status-of-all-tasks
+      taskRef:
+        name: "gitlab-set-status"
+      params:
+        - name: "STATE"
+          value: "failed"
+        - name: "GITLAB_HOST_URL"
+          value: "$(params.GITLAB_HOST)"
+        - name: "REPO_FULL_NAME"
+          value: "$(params.REPO_PATH_ONLY)"
+        - name: "GITLAB_TOKEN_SECRET_NAME"
+          value: "gitlab-api-secret"
+        - name: "GITLAB_TOKEN_SECRET_KEY"
+          value: "token"
+        - name: "SHA"
+          value: "$(params.SOURCE_REVISION)"
+        - name: "TARGET_URL"
+          value: "$(params.TEKTON_DASHBOARD_HOST)/#/namespaces/default/pipelineruns/$(context.pipelineRun.name)"
+        - name: "CONTEXT"
+          value: "tekton-pipeline"
+        - name: "DESCRIPTION"
+          value: "An error occurred building your commit in Tekton"
+    - name: report-pipeline-success-to-gitlab
+      when:
+          - input: $(tasks.status)
+            operator: in
+            values: [ "Succeeded", "Completed" ] # see aggregated status https://tekton.dev/docs/pipelines/pipelines/#using-aggregate-execution-status-of-all-tasks
+      taskRef:
+        name: "gitlab-set-status"
+      params:
+        - name: "STATE"
+          value: "success"
+        - name: "GITLAB_HOST_URL"
+          value: "$(params.GITLAB_HOST)"
+        - name: "REPO_FULL_NAME"
+          value: "$(params.REPO_PATH_ONLY)"
+        - name: "GITLAB_TOKEN_SECRET_NAME"
+          value: "gitlab-api-secret"
+        - name: "GITLAB_TOKEN_SECRET_KEY"
+          value: "token"
+        - name: "SHA"
+          value: "$(params.SOURCE_REVISION)"
+        - name: "TARGET_URL"
+          value: "$(params.TEKTON_DASHBOARD_HOST)/#/namespaces/default/pipelineruns/$(context.pipelineRun.name)"
+        - name: "CONTEXT"
+          value: "tekton-pipeline"
+        - name: "DESCRIPTION"
+          value: "Finished building your commit in Tekton"
+```
+
 
 
 
