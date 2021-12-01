@@ -24,6 +24,7 @@ spec:
       description: The Tekton dashboard host name only
 
   workspaces:
+    - name: maven-settings # Maven settings, see https://hub.tekton.dev/tekton/task/maven
     - name: source-workspace # Directory where application source is located. (REQUIRED)
     - name: cache-workspace # Directory where cache is stored (OPTIONAL)
   tasks:
@@ -66,11 +67,25 @@ spec:
           value: ""
         - name: deleteExisting
           value: "true"
+    - name: maven-test
+      taskRef:
+        name: maven
+      runAfter:
+        - fetch-repository
+      params:
+        - name: GOALS
+          value:
+            - verify
+      workspaces:
+        - name: maven-settings
+          workspace: maven-settings
+        - name: source
+          workspace: source-workspace
     - name: buildpacks # This task uses the `buildpacks` task to build the application
       taskRef:
         name: buildpacks
       runAfter:
-        - fetch-repository
+        - maven-test
       workspaces:
         - name: source
           workspace: source-workspace

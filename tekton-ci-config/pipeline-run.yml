@@ -7,6 +7,8 @@ spec:
   pipelineRef:
     name: buildpacks-test-pipeline
   workspaces:
+    - name: maven-settings
+      emptyDir: {}
     - name: source-workspace
       subPath: source
       persistentVolumeClaim:
