@@ -604,6 +604,77 @@ Looking into the Tekton dashboard we should now finally see a successful Pipelin
 
 
 
+### Add Maven Task to Pipeline
+
+What about extending our Tekton Pipeline with a Maven Task, that initiates a test run before we build our app container using Buildpacks.
+
+Therefore we can simply use the https://hub.tekton.dev/tekton/task/maven Task from Tekton Hub.
+
+First we need to install the Task in our GitHub Actions [provision.yml](.github/workflows/provision.yml):
+
+```yaml
+kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/maven/0.2/maven.yaml
+```
+
+Now we need to enhance our [pipeline.yml](tekton-ci-config/pipeline.yml) with a new workspace `maven-settings` and the Task definition `maven-test`, which should also be defined as `runAfter` target in the `buildpacks` Task:  
+
+```yaml
+  workspaces:
+    - name: maven-settings # Maven settings, see https://hub.tekton.dev/tekton/task/maven
+      ...
+  tasks:
+    ...
+    - name: maven-test
+      taskRef:
+        name: maven
+      runAfter:
+        - fetch-repository
+      params:
+        - name: GOALS
+          value:
+            - verify
+      workspaces:
+        - name: maven-settings
+          workspace: maven-settings
+        - name: source
+          workspace: source-workspace
+    - name: buildpacks # This task uses the `buildpacks` task to build the application
+      taskRef:
+        name: buildpacks
+      runAfter:
+        - maven-test
+```
+
+We also should enhance our [pipeline-run.yml](tekton-ci-config/pipeline-run.yml) and [gitlab-push-listener.yml](tekton-ci-config/triggers/gitlab-push-listener.yml) to define the additional workspace:
+
+```yaml
+  pipelineRef:
+    name: buildpacks-test-pipeline
+  workspaces:
+    - name: maven-settings
+      emptyDir: {}
+```
+
+Finally we should also add the new workspace with `--workspace name=maven-settings,emptyDir=` to our `tkn pipeline start` command in the project's branch https://gitlab.com/jonashackt/microservice-api-spring-boot/-/tree/trigger-tekton-via-gitlabci inside the `.gitlab-ci.yml`:
+
+```shell
+tkn pipeline start buildpacks-test-pipeline \
+  --serviceaccount buildpacks-service-account-gitlab \
+  --workspace name=maven-settings,emptyDir= \
+  --workspace name=source-workspace,subPath=source,claimName=buildpacks-source-pvc \
+  --workspace name=cache-workspace,subPath=cache,claimName=buildpacks-source-pvc \
+  --param IMAGE=registry.gitlab.com/jonashackt/microservice-api-spring-boot \
+  --param SOURCE_URL=https://gitlab.com/jonashackt/microservice-api-spring-boot \
+  --param REPO_PATH_ONLY=jonashackt/microservice-api-spring-boot \
+  --param SOURCE_REVISION=main \
+  --param GITLAB_HOST=gitlab.com \
+  --param TEKTON_DASHBOARD_HOST="http://abd1c6f235c9642bf9d4cdf632962298-1232135946.eu-central-1.elb.amazonaws.com" \
+  --timeout 240s \
+  --showlog
+```
+
+
+
 
 # Integrate Tekton on EKS with GitLab.com
 
@@ -815,7 +886,7 @@ Now insert our a fake URL like `http://www.google.com` into the __URL__ field (w
 
 Also insert our Secret Token `1234567` in the __Secret Token__ field.
 
-Finally choose __Push events__ and scroll down and hit __Add webhook__. 
+Finally choose __Push events__, deselect SSL verification and scroll down and hit __Add webhook__. 
 
 This should result in the Webhook beeing created and listed right at the bottom of this page (scroll down again) in a list called `Project Hooks`.
 
@@ -951,14 +1022,6 @@ Port forward with a new `Service` locally:
 kubectl port-forward service/el-gitlab-listener 8080
 ```
 
-This should create a new service:
-
-```shell
-$ kubectl get services
-NAME                 TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)             AGE
-el-gitlab-listener   ClusterIP   10.100.114.152   <none>        8080/TCP,9000/TCP   2m39s
-```
-
 Now test-drive the trigger via curl:
 
 ```shell
@@ -1050,7 +1113,7 @@ kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loa
 
 #### 5. Testdrive Trigger via curl
 
-Now let's try our `curl` using the predefined [](tekton-ci-config/triggers/gitlab-push-event.json):
+Now let's try our `curl` using the predefined [gitlab-push-test-event.json](tekton-ci-config/triggers/gitlab-push-test-event.json):
 
 ```shell
 TEKTON_EVENTLISTENER_INGRESS_HOST="http://$(kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
@@ -1557,9 +1620,13 @@ https://hub.tekton.dev/tekton/task/create-gitlab-release
 
 ### GitLab and Tekton
 
-https://www.youtube.com/watch?v=skcLi9-WTkA
-
 https://gitlab.com/gitlab-org/gitlab/-/issues/213360
+
+https://gitlab.com/gitlab-org/gitlab-runner/-/issues/28051 
+
+https://gitlab.com/gitlab-com/marketing/community-relations/opensource-program/consortium-memberships/-/issues/19
+
+https://www.youtube.com/watch?v=skcLi9-WTkA
 
 https://cloud.google.com/tekton
 
