@@ -7,14 +7,16 @@ spec:
   pipelineRef:
     name: buildpacks-test-pipeline
   workspaces:
-    - name: maven-settings
-      emptyDir: {}
     - name: source-workspace
       subPath: source
       persistentVolumeClaim:
         claimName: buildpacks-source-pvc
     - name: cache-workspace
       subPath: cache
+      persistentVolumeClaim:
+        claimName: buildpacks-source-pvc
+    - name: maven-repo-cache
+      subPath: maven-repo-cache
       persistentVolumeClaim:
         claimName: buildpacks-source-pvc
   params:

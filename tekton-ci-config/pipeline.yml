@@ -24,7 +24,7 @@ spec:
       description: The Tekton dashboard host name only
 
   workspaces:
-    - name: maven-settings # Maven settings, see https://hub.tekton.dev/tekton/task/maven
+    - name: maven-repo-cache # Maven repository cahce, see https://developers.redhat.com/blog/2020/02/26/speed-up-maven-builds-in-tekton-pipelines#run_a_maven_pipeline
     - name: source-workspace # Directory where application source is located. (REQUIRED)
     - name: cache-workspace # Directory where cache is stored (OPTIONAL)
   tasks:
@@ -75,12 +75,13 @@ spec:
       params:
         - name: GOALS
           value:
+            - -Dmaven.repo.local=$(workspaces.maven-settings.path)
             - verify
       workspaces:
-        - name: maven-settings
-          workspace: maven-settings
         - name: source
           workspace: source-workspace
+        - name: maven-settings
+          workspace: maven-repo-cache
     - name: buildpacks # This task uses the `buildpacks` task to build the application
       taskRef:
         name: buildpacks
@@ -95,7 +96,7 @@ spec:
         - name: APP_IMAGE
           value: "$(params.IMAGE)"
         - name: CACHE_IMAGE
-          value: "$(params.IMAGE)-paketo-build-cache"
+          value: "$(params.IMAGE):paketo-build-cache"
         - name: BUILDER_IMAGE
           value: paketobuildpacks/builder:base # This is the builder we want the task to use (REQUIRED)
   finally:
