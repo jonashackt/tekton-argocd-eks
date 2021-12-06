@@ -604,6 +604,27 @@ Looking into the Tekton dashboard we should now finally see a successful Pipelin
 
 
 
+### Cache Buildpacks builds with cache image
+
+It's extremey easy to leverage the Buildpacks cache image feature, that will create a separate cache image for building and will store it alongside the resulting app image in our Container Registry.
+
+Therefore simply add the `CACHE_IMAGE` parameter using our `$(params.IMAGE)` definition and appending `:paketo-build-cache` like this inside our Pipeline:
+
+```yaml
+      params:
+        - name: APP_IMAGE
+          value: "$(params.IMAGE)"
+        - name: CACHE_IMAGE
+          value: "$(params.IMAGE):paketo-build-cache"
+        - name: BUILDER_IMAGE
+          value: paketobuildpacks/builder:base # This is the builder we want the task to use (REQUIRED)
+```
+
+Now the next build should produce a separate image inside our Container Registry:
+
+![paketo-cache-image](screenshots/paketo-cache-image.png)
+
+
 ### Add Maven Task to Pipeline
 
 What about extending our Tekton Pipeline with a Maven Task, that initiates a test run before we build our app container using Buildpacks.
@@ -672,6 +693,143 @@ tkn pipeline start buildpacks-test-pipeline \
   --timeout 240s \
   --showlog
 ```
+
+
+### Add caching to Maven Task
+
+It seems that the [Tekton Hub's Maven Task](https://hub.tekton.dev/tekton/task/maven) doesn't implement caching for us. Our builds tend to download all Maven dependencies over and over again:
+
+![maven-task-without-repo-cache](screenshots/maven-task-without-repo-cache.png)
+
+As stated in https://developers.redhat.com/blog/2020/02/26/speed-up-maven-builds-in-tekton-pipelines#maven_task_with_a_workspace we need to define our own Task for that.
+
+As we don't need the `settings.xml` configuration (e.g. for Proxy settings), which is the main point of the Tekton Hub's Maven Task, we can simply create our own - see [task-maven-with-cache.yml](tekton-ci-config/task-maven-with-cache.yml):
+
+```yaml
+apiVersion: tekton.dev/v1alpha1
+kind: Task
+metadata:
+  name: maven-with-cache
+spec:
+  workspaces:
+    - name: source
+      description: The workspace consisting of maven project.
+    - name: maven-repo-cache
+      description: The workspace holding the Maven repository for caching.
+  params:
+    - name: GOALS
+      description: The Maven goals to run
+      type: array
+      default:
+        - "package"
+  steps:
+    - name: mvn
+      image: gcr.io/cloud-builders/mvn
+      workingDir: $(workspaces.source.path)
+      command: ["/usr/bin/mvn"]
+      args:
+        - -Dmaven.repo.local=$(workspaces.maven-repo-cache.path)
+        - "$(params.GOALS)"
+```
+
+We need to `kubectl apply` our Task `maven-with-cache` with:
+
+```shell
+kubectl apply -f tekton-ci-config/task-maven-with-cache.yml
+```
+
+
+We also need to use our new Maven Task inside our [pipeline.yml](tekton-ci-config/pipeline.yml):
+
+```yaml
+workspaces:
+  - name: maven-repo-cache # Maven repository cahce, see https://developers.redhat.com/blog/2020/02/26/speed-up-maven-builds-in-tekton-pipelines#run_a_maven_pipeline
+
+...
+
+    - name: maven-test
+      taskRef:
+        name: maven-with-cache
+      runAfter:
+        - fetch-repository
+      params:
+        - name: GOALS
+          value:
+            - verify
+      workspaces:
+        - name: source
+          workspace: source-workspace
+        - name: maven-repo-cache
+          workspace: maven-repo-cache
+```
+
+Now we could try to also create a new `PersistentVolumeClaim` as stated in https://developers.redhat.com/blog/2020/02/26/speed-up-maven-builds-in-tekton-pipelines#run_a_maven_pipeline
+
+```yaml
+    - name: maven-repo-cache
+      persistentVolumeClaim:
+        claimName: maven-repo-cache-pvc
+```
+
+But we would run into errors like:
+
+```shell
+completionTime: '2021-12-06T09:13:49Z'
+conditions:  - lastTransitionTime: '2021-12-06T09:13:49Z'
+    message: more than one PersistentVolumeClaim is bound
+    reason: TaskRunValidationFailed
+    status: 'False'
+    type: 
+```
+
+It seems that Tekton doesn't like to have multiple PVC inside one Task: https://github.com/tektoncd/pipeline/issues/3480 and https://github.com/tektoncd/pipeline/issues/3085
+
+> In general, try to only use a single PVC for each task.
+
+So we need to use a separate `subPath` inside our already existing PVC `buildpacks-source-pvc` (which doesn't have a matching name any more it seems :) ).
+
+As stated in https://buildpacks.io/docs/tools/tekton/#43-pipeline __a Tekton workspace could be simply seen as a shared directory__ (see https://tekton.dev/docs/pipelines/workspaces/, where I didn't get this first).
+
+So we finally simply provide a new workspace using the existing PVC but a different `subPath` to our [pipeline-run.yml](tekton-ci-config/pipeline-run.yml) & [gitlab-push-listener.yml](tekton-ci-config/triggers/gitlab-push-listener.yml):
+
+```yaml
+    - name: maven-repo-cache
+      subPath: maven-repo-cache
+      persistentVolumeClaim:
+        claimName: buildpacks-source-pvc
+```
+
+
+And we can even optimize our solution by simply using the `maven-settings` workspace definition of the [standard Tekton Hub's Maven Task](https://hub.tekton.dev/tekton/task/maven) inside our Pipeline
+
+```yaml
+workspaces:
+  - name: maven-repo-cache # Maven repository cahce, see https://developers.redhat.com/blog/2020/02/26/speed-up-maven-builds-in-tekton-pipelines#run_a_maven_pipeline
+
+...
+    - name: maven-test
+      taskRef:
+        name: maven
+      runAfter:
+        - fetch-repository
+      params:
+        - name: GOALS
+          value:
+            - -Dmaven.repo.local=$(workspaces.maven-settings.path)
+            - verify
+      workspaces:
+        - name: source
+          workspace: source-workspace
+        - name: maven-settings
+          workspace: maven-repo-cache
+```
+
+Now our Pipeline should run faster then before, since the Maven cache is used:
+
+![maven-task-with-repo-cache](screenshots/maven-task-with-repo-cache.png)
+
+
+
 
 
 
