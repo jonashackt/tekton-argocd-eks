@@ -94,6 +94,8 @@ spec:
       params:
         - name: APP_IMAGE
           value: "$(params.IMAGE)"
+        - name: CACHE_IMAGE
+          value: "$(params.IMAGE)-paketo-build-cache"
         - name: BUILDER_IMAGE
           value: paketobuildpacks/builder:base # This is the builder we want the task to use (REQUIRED)
   finally:
