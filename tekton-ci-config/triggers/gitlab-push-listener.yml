@@ -68,7 +68,3 @@ spec:
                     value: $(tt.params.gitrepository_pathonly)
                   - name: SOURCE_REVISION
                     value: $(tt.params.gitrevision)
-                  - name: GITLAB_HOST
-                    value: gitlab.com
-                  - name: TEKTON_DASHBOARD_HOST
-                    value: {{TEKTON_DASHBOARD_HOST}}

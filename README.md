@@ -1770,6 +1770,163 @@ and in the detail view:
 The solution is based on https://stackoverflow.com/questions/70156006/report-tekton-pipeline-status-to-gitlab-regardless-if-pipeline-failed-or-succeed/70156007#70156007.
 
 
+### Refactoring usage of gitlab-set-status usage
+
+Right now we have a huge pipeline with only 2-3 relevant Tekton tasks, the other 3 Tasks are solely used to communicate the pipeline's status to GitLab.
+
+So is there a way we could refactor these to a more generic form? I digged into `PipelineResources` as I thought they could be a nice option to handle this. But sadly they didn't make it into the Tekton beta: https://tekton.dev/docs/pipelines/migrating-v1alpha1-to-v1beta1/#replacing-pipelineresources-with-tasks
+
+That's why we need another way to accomplish our refactoring. So what about simply using Tasks that reference other Tasks? Sadly that doesn't seem to be possible. Since Tasks only specify `steps` not `tasks` with `taskRef`.
+
+
+#### Using Pipelines-in-Pipelines
+
+But how about using Pipelines using other Pipelines? Is this possible? Yes, but currently only as experimental: https://tekton.dev/docs/pipelines/pipelines/#compose-using-pipelines-in-pipelines & https://github.com/tektoncd/experimental/blob/main/pipelines-in-pipelines/examples/pipelinerun-with-pipeline-in-pipeline.yaml
+
+As stated we can create a normal Tekton Pipeline as we're already used to - and then use this Pipeline in another Pipeline simply by using `taskRef` with `kind: Pipeline` and `apiVersion: tekton.dev/v1beta1` accompanying the referenced pipeline name:
+
+```yaml
+      - name: reference-other-pipeline
+        taskRef:
+          apiVersion: tekton.dev/v1beta1
+          kind: Pipeline
+          name: other-pipeline-name
+```
+
+In order to be able to use this feature, [we need to install the `Pipelines-In-Pipelines Controller`](https://github.com/tektoncd/experimental/tree/main/pipelines-in-pipelines#install) with (but be aware of https://github.com/tektoncd/experimental/issues/817 which is fixed by https://github.com/tektoncd/experimental/pull/818)
+
+```shell
+kubectl apply --filename https://storage.googleapis.com/tekton-releases-nightly/pipelines-in-pipelines/latest/release.yaml
+```
+
+
+#### Enabling Tekton alpha features
+
+Now running our pipelines would result in the following error:
+
+```shell
+Pipeline default/buildpacks-test-pipeline can't be Run; it contains Tasks that don't exist: Couldn't retrieve Task "generic-gitlab-set-status": tasks.tekton.dev "generic-gitlab-set-status" not found
+```
+
+That's because the Pipeline-in-Pipelines feature is an alpha feature - see this issue https://github.com/tektoncd/experimental/issues/785
+
+In order to activate [Tekton alpha features](https://tekton.dev/docs/pipelines/install/#alpha-features) we need to [Customize the Pipeline Controllers behavior](https://tekton.dev/docs/pipelines/install/#customizing-the-pipelines-controller-behavior).
+
+As stated in https://stackoverflow.com/a/70336211/4964553 this could be done on-the-fly with `curl` and `sed` piped into `kubectl apply` like this:
+
+```shell
+curl https://storage.googleapis.com/tekton-releases/pipeline/latest/release.yaml | sed "s#stable#alpha#g" | kubectl apply -f -
+```
+
+
+#### Create a generic gitlab-set-status pipeline for later re-use
+
+Let's try to create a generic Tekton Pipeline for the `gitlab-set-status` as [generic-gitlab-set-status.yml](tekton-ci-config/generic-gitlab-set-status.yml):
+
+```yaml
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: generic-gitlab-set-status
+spec:
+  params:
+    - name: STATE
+      type: string
+      description: The gitlab-set-status Tasks state to set. Can be one of the following pending, running, success, failed, or canceled.
+    - name: PIPELINE_NAME
+      type: string
+      description: The calling pipelines name.
+    - name: REPO_PATH_ONLY
+      type: string
+      description: GitLab group & repo name only (e.g. jonashackt/microservice-api-spring-boot)
+    - name: SOURCE_REVISION
+      description: The branch, tag or SHA to checkout.
+      default: ""
+    - name: GITLAB_TOOLTIP
+      type: string
+      description: The tooltip to be shown in the GitLab Pipelines details view.
+
+  tasks:
+    - name: report-pipeline-start-to-gitlab
+      taskRef:
+        name: gitlab-set-status
+      params:
+        - name: "STATE"
+          value: "$(params.STATE)"
+        - name: "GITLAB_HOST_URL"
+          value: "gitlab.com"
+        - name: "REPO_FULL_NAME"
+          value: "$(params.REPO_PATH_ONLY)"
+        - name: "GITLAB_TOKEN_SECRET_NAME"
+          value: "gitlab-api-secret"
+        - name: "GITLAB_TOKEN_SECRET_KEY"
+          value: "token"
+        - name: "SHA"
+          value: "$(params.SOURCE_REVISION)"
+        - name: "TARGET_URL"
+          value: "{{TEKTON_DASHBOARD_HOST}}/#/namespaces/default/pipelineruns/$(params.PIPELINE_NAME)"
+        - name: "CONTEXT"
+          value: "tekton-pipeline"
+        - name: "DESCRIPTION"
+          value: "$(params.GITLAB_TOOLTIP)"
+```
+
+As you can see we define the `TEKTON_DASHBOARD_HOST` using brackets so we can later use `sed` to dynamically set the actual Tekton Dashboard URL in our GitHub Actions pipeline (using `sed` for this is also described in https://stackoverflow.com/a/70152914/4964553)
+
+```shell
+TEKTON_DASHBOARD_HOST="${{ steps.dashboard-expose.outputs.dashboard_host }}"
+sed "s#{{TEKTON_DASHBOARD_HOST}}#$TEKTON_DASHBOARD_HOST#g" tekton-ci-config/generic-gitlab-set-status.yml | kubectl apply -f -
+```
+
+
+#### Use the generic gitlab-set-status pipeline in our actual pipeline
+
+In our [pipeline.yml](tekton-ci-config/pipeline.yml) we can now reduce many lines that we don't need to pass to the generic gitlab-set-status pipeline any more. So our pipeline becomes much more readable and only the things remain that are naturally defined inside a pipeline. See the usage of our generic gitlab-set-status pipeline here using the Pipelines-in-Pipelines feature: 
+
+```yaml
+    - name: report-pipeline-start-to-gitlab
+      taskRef:
+        apiVersion: tekton.dev/v1beta1
+        kind: Pipeline
+        name: generic-gitlab-set-status
+      params:
+        - name: "STATE"
+          value: "running"
+        - name: "REPO_PATH_ONLY"
+          value: "$(params.REPO_PATH_ONLY)"
+        - name: "SHA"
+          value: "$(params.SOURCE_REVISION)"
+        - name: "GITLAB_TOOLTIP"
+          value: "Building your commit in Tekton"
+        - name: "PIPELINE_NAME"
+          value: "$(context.pipelineRun.name)"
+```
+
+As the Pipeline-in-Pipeline feature is in alpha state, this is really cool to see it working. In a future version there might be the option to also remove the `PIPELINE_NAME` parameter (but currently I see no option for that https://github.com/tektoncd/experimental/tree/main/pipelines-in-pipelines).  
+
+The code needed to invoke the gitlab-set-status task is reduced all the way:
+
+![pip-in-pip-codereduction-params](screenshots/pip-in-pip-codereduction-params.png)
+
+![pip-in-pip-codereduction-state-running](screenshots/pip-in-pip-codereduction-state-running.png)
+
+![pip-in-pip-codereduction-finally](screenshots/pip-in-pip-codereduction-finally.png)
+
+Finally we can also __remove code__ from our [pipeline-run.yml](tekton-ci-config/pipeline-run.yml) and [gitlab-push-listener.yml](tekton-ci-config/triggers/gitlab-push-listener.yml):
+
+```yaml
+    - name: GITLAB_HOST
+      value: gitlab.com
+    - name: TEKTON_DASHBOARD_HOST
+      value: {{TEKTON_DASHBOARD_HOST}}
+```
+
+because this is now centrally configured in our generic pipeline :)
+
+There's maybe one thing that could be considered as downside: One logic pipeline now triggers 3 PipelineRuns - those are also shown in the Tekton Dashboard:
+
+![pip-in-pip-producing-3-pipelineruns](screenshots/pip-in-pip-producing-3-pipelineruns.png)
+
 
 
 # Q & A

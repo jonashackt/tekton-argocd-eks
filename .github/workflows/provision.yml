@@ -84,13 +84,15 @@ jobs:
 
       - name: Install Tekton Pipelines, Dashboard, Triggers
         run: |
-          echo "--- Install Tekton Pipelines"
-          kubectl apply --filename https://storage.googleapis.com/tekton-releases/pipeline/latest/release.yaml
+          echo "--- Install Tekton Pipelines with alpha features enabled (see https://stackoverflow.com/a/70336211/4964553 & https://github.com/tektoncd/experimental/issues/785#issuecomment-909049989)"
+          curl https://storage.googleapis.com/tekton-releases/pipeline/latest/release.yaml | sed "s#stable#alpha#g" | kubectl apply -f -
           echo "--- Install Tekton Dashboard"
           kubectl apply --filename https://github.com/tektoncd/dashboard/releases/latest/download/tekton-dashboard-release.yaml
           echo "--- Install Tekton Triggers"
           kubectl apply --filename https://storage.googleapis.com/tekton-releases/triggers/latest/release.yaml
           kubectl apply --filename https://storage.googleapis.com/tekton-releases/triggers/latest/interceptors.yaml
+          echo "--- Install experimental Pipeline-in-Pipelines Controller"
+          kubectl apply --filename https://storage.googleapis.com/tekton-releases-nightly/pipelines-in-pipelines/latest/release.yaml
 
       - name: Wait for Tekton to become ready & show running Tekton pods
         run: |
@@ -144,6 +146,9 @@ jobs:
               --save-config --dry-run=client -o yaml | kubectl apply -f -
           echo "--- apply  buildpacks PVC, ServiceAccount & Pipeline"
           kubectl apply -f tekton-ci-config/resources.yml -f tekton-ci-config/gitlab-cr-service-account.yml -f tekton-ci-config/pipeline.yml
+          echo "--- Insert Tekton dashboard url into generic-gitlab-set-status Pipeline config and apply it (see https://stackoverflow.com/a/70152914/4964553)"
+          TEKTON_DASHBOARD_HOST="${{ steps.dashboard-expose.outputs.dashboard_host }}"
+          sed "s#{{TEKTON_DASHBOARD_HOST}}#$TEKTON_DASHBOARD_HOST#g" tekton-ci-config/generic-gitlab-set-status.yml | kubectl apply -f -
 
       - name: Run Tekton Buildpacks powered Pipeline by creating PipelineRun
         run: |
@@ -156,8 +161,6 @@ jobs:
           --param SOURCE_URL=https://gitlab.com/jonashackt/microservice-api-spring-boot \
           --param REPO_PATH_ONLY=jonashackt/microservice-api-spring-boot \
           --param SOURCE_REVISION=main \
-          --param GITLAB_HOST=gitlab.com \
-          --param TEKTON_DASHBOARD_HOST="${{ steps.dashboard-expose.outputs.dashboard_host }}" \
           --dry-run \
           --output yaml > pipelinerun.yml
 
@@ -174,9 +177,7 @@ jobs:
         run: |
           kubectl apply -f tekton-ci-config/triggers/serviceaccount-rb-crb.yml
           kubectl apply -f tekton-ci-config/triggers/tekton-trigger-secret.yml
-          echo "--- Insert Tekton dashboard url into EventListener config and apply it (see https://stackoverflow.com/a/70152914/4964553)"
-          TEKTON_DASHBOARD_HOST="${{ steps.dashboard-expose.outputs.dashboard_host }}"
-          sed "s#{{TEKTON_DASHBOARD_HOST}}#$TEKTON_DASHBOARD_HOST#g" tekton-ci-config/triggers/gitlab-push-listener.yml | kubectl apply -f -
+          kubectl apply -f tekton-ci-config/triggers/gitlab-push-listener.yml
 
       - name: Create gitlab.com api token secret for Tekton Pipeline status reports
         run: |

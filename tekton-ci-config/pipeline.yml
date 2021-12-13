@@ -16,12 +16,6 @@ spec:
     - name: SOURCE_REVISION
       description: The branch, tag or SHA to checkout.
       default: ""
-    - name: GITLAB_HOST
-      type: string
-      description: Your GitLabs host only (e.g. gitlab.com)
-    - name: TEKTON_DASHBOARD_HOST
-      type: string
-      description: The Tekton dashboard host name only
 
   workspaces:
     - name: maven-repo-cache # Maven repository cahce, see https://developers.redhat.com/blog/2020/02/26/speed-up-maven-builds-in-tekton-pipelines#run_a_maven_pipeline
@@ -30,26 +24,20 @@ spec:
   tasks:
     - name: report-pipeline-start-to-gitlab
       taskRef:
-        name: gitlab-set-status
+        apiVersion: tekton.dev/v1beta1
+        kind: Pipeline
+        name: generic-gitlab-set-status
       params:
         - name: "STATE"
           value: "running"
-        - name: "GITLAB_HOST_URL"
-          value: "$(params.GITLAB_HOST)"
-        - name: "REPO_FULL_NAME"
+        - name: "REPO_PATH_ONLY"
           value: "$(params.REPO_PATH_ONLY)"
-        - name: "GITLAB_TOKEN_SECRET_NAME"
-          value: "gitlab-api-secret"
-        - name: "GITLAB_TOKEN_SECRET_KEY"
-          value: "token"
         - name: "SHA"
           value: "$(params.SOURCE_REVISION)"
-        - name: "TARGET_URL"
-          value: "$(params.TEKTON_DASHBOARD_HOST)/#/namespaces/default/pipelineruns/$(context.pipelineRun.name)"
-        - name: "CONTEXT"
-          value: "tekton-pipeline"
-        - name: "DESCRIPTION"
+        - name: "GITLAB_TOOLTIP"
           value: "Building your commit in Tekton"
+        - name: "PIPELINE_NAME"
+          value: "$(context.pipelineRun.name)"
     - name: fetch-repository # This task fetches a repository from github, using the `git-clone` task you installed
       taskRef:
         name: git-clone
@@ -106,49 +94,37 @@ spec:
           operator: in
           values: [ "Failed", "None" ] # see aggregated status https://tekton.dev/docs/pipelines/pipelines/#using-aggregate-execution-status-of-all-tasks
       taskRef:
-        name: "gitlab-set-status"
+        apiVersion: tekton.dev/v1beta1
+        kind: Pipeline
+        name: generic-gitlab-set-status
       params:
         - name: "STATE"
           value: "failed"
-        - name: "GITLAB_HOST_URL"
-          value: "$(params.GITLAB_HOST)"
-        - name: "REPO_FULL_NAME"
+        - name: "REPO_PATH_ONLY"
           value: "$(params.REPO_PATH_ONLY)"
-        - name: "GITLAB_TOKEN_SECRET_NAME"
-          value: "gitlab-api-secret"
-        - name: "GITLAB_TOKEN_SECRET_KEY"
-          value: "token"
         - name: "SHA"
           value: "$(params.SOURCE_REVISION)"
-        - name: "TARGET_URL"
-          value: "$(params.TEKTON_DASHBOARD_HOST)/#/namespaces/default/pipelineruns/$(context.pipelineRun.name)"
-        - name: "CONTEXT"
-          value: "tekton-pipeline"
-        - name: "DESCRIPTION"
+        - name: "GITLAB_TOOLTIP"
           value: "An error occurred building your commit in Tekton"
+        - name: "PIPELINE_NAME"
+          value: "$(context.pipelineRun.name)"
     - name: report-pipeline-success-to-gitlab
       when:
           - input: $(tasks.status)
             operator: in
             values: [ "Succeeded", "Completed" ] # see aggregated status https://tekton.dev/docs/pipelines/pipelines/#using-aggregate-execution-status-of-all-tasks
       taskRef:
-        name: "gitlab-set-status"
+        apiVersion: tekton.dev/v1beta1
+        kind: Pipeline
+        name: generic-gitlab-set-status
       params:
         - name: "STATE"
           value: "success"
-        - name: "GITLAB_HOST_URL"
-          value: "$(params.GITLAB_HOST)"
-        - name: "REPO_FULL_NAME"
+        - name: "REPO_PATH_ONLY"
           value: "$(params.REPO_PATH_ONLY)"
-        - name: "GITLAB_TOKEN_SECRET_NAME"
-          value: "gitlab-api-secret"
-        - name: "GITLAB_TOKEN_SECRET_KEY"
-          value: "token"
         - name: "SHA"
           value: "$(params.SOURCE_REVISION)"
-        - name: "TARGET_URL"
-          value: "$(params.TEKTON_DASHBOARD_HOST)/#/namespaces/default/pipelineruns/$(context.pipelineRun.name)"
-        - name: "CONTEXT"
-          value: "tekton-pipeline"
-        - name: "DESCRIPTION"
+        - name: "GITLAB_TOOLTIP"
           value: "Finished building your commit in Tekton"
+        - name: "PIPELINE_NAME"
+          value: "$(context.pipelineRun.name)"
