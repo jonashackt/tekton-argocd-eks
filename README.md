@@ -1772,6 +1772,134 @@ The solution is based on https://stackoverflow.com/questions/70156006/report-tek
 
 
 
+# Q & A
+
+### Pod gives message: '0/2 nodes are available: 2 node(s) had volume node affinity conflict.'
+
+The Tekton pipeline failed and I had to dig into the Pod logs to find the error ([see this log](http://abd1c6f235c9642bf9d4cdf632962298-1232135946.eu-central-1.elb.amazonaws.com/#/namespaces/default/pipelineruns/buildpacks-test-pipeline-run-mdbh5?pipelineTask=fetch-repository&view=pod)):
+
+![node-volume-node-affinity-conflict](screenshots/node-volume-node-affinity-conflict.png)
+
+As described in https://stackoverflow.com/a/55514852/4964553 and the section `Statefull applications` in https://vorozhko.net/120-days-of-aws-eks-kubernetes-in-staging to nodes are provisioned on other AWS availability zones as the persistent volume (PV), which is created by applying our PersistendVolumeClaim in [resources.yml](tekton-ci-config/resources.yml).
+
+To double check that, you need to look into/describe your nodes:
+
+```shell
+k get nodes
+NAME                                             STATUS   ROLES    AGE     VERSION
+ip-172-31-10-186.eu-central-1.compute.internal   Ready    <none>   2d16h   v1.21.5-eks-bc4871b
+ip-172-31-20-83.eu-central-1.compute.internal    Ready    <none>   2d16h   v1.21.5-eks-bc4871b
+```
+
+and have a look at the `Label` section:
+
+```shell
+$ k describe node ip-172-77-88-99.eu-central-1.compute.internal
+Name:               ip-172-77-88-99.eu-central-1.compute.internal
+Roles:              <none>
+Labels:             beta.kubernetes.io/arch=amd64
+                    beta.kubernetes.io/instance-type=t2.medium
+                    beta.kubernetes.io/os=linux
+                    failure-domain.beta.kubernetes.io/region=eu-central-1
+                    failure-domain.beta.kubernetes.io/zone=eu-central-1b
+                    kubernetes.io/arch=amd64
+                    kubernetes.io/hostname=ip-172-77-88-99.eu-central-1.compute.internal
+                    kubernetes.io/os=linux
+                    node.kubernetes.io/instance-type=t2.medium
+                    topology.kubernetes.io/region=eu-central-1
+                    topology.kubernetes.io/zone=eu-central-1b
+Annotations:        node.alpha.kubernetes.io/ttl: 0
+...
+```
+
+In my case the node `ip-172-77-88-99.eu-central-1.compute.internal` has `failure-domain.beta.kubernetes.io/region` defined as `eu-central-1` and the az with `failure-domain.beta.kubernetes.io/zone` to `eu-central-1b``
+
+And the other node defines az `eu-central-1a`:
+
+```shell
+$ k describe nodes ip-172-31-10-186.eu-central-1.compute.internal
+Name:               ip-172-31-10-186.eu-central-1.compute.internal
+Roles:              <none>
+Labels:             beta.kubernetes.io/arch=amd64
+                    beta.kubernetes.io/instance-type=t2.medium
+                    beta.kubernetes.io/os=linux
+                    failure-domain.beta.kubernetes.io/region=eu-central-1
+                    failure-domain.beta.kubernetes.io/zone=eu-central-1a
+                    kubernetes.io/arch=amd64
+                    kubernetes.io/hostname=ip-172-31-10-186.eu-central-1.compute.internal
+                    kubernetes.io/os=linux
+                    node.kubernetes.io/instance-type=t2.medium
+                    topology.kubernetes.io/region=eu-central-1
+                    topology.kubernetes.io/zone=eu-central-1a
+Annotations:        node.alpha.kubernetes.io/ttl: 0
+...
+```
+
+Now looking into our `PersistentVolume` automatically provisioned after applying our `PersistentVolumeClaim` with [resources.yml](tekton-ci-config/resources.yml), we see the problem already:
+
+```shell
+$ k get pv
+NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                           STORAGECLASS   REASON   AGE
+pvc-93650993-6154-4bd0-bd1c-6260e7df49d3   1Gi        RWO            Delete           Bound    default/buildpacks-source-pvc   gp2                     21d
+
+$ k describe pv pvc-93650993-6154-4bd0-bd1c-6260e7df49d3
+Name:              pvc-93650993-6154-4bd0-bd1c-6260e7df49d3
+Labels:            topology.kubernetes.io/region=eu-central-1
+                   topology.kubernetes.io/zone=eu-central-1c
+Annotations:       kubernetes.io/createdby: aws-ebs-dynamic-provisioner
+...
+```
+
+The `PersistentVolume` was provisioned to `topology.kubernetes.io/zone` in az `eu-central-1c`, which makes our Pods complain about not finding their volume - since they are in a completely different az.
+
+As [stated in the Kubernetes docs](https://kubernetes.io/docs/concepts/storage/storage-classes/#allowed-topologies) one solution to the problem is to add a `allowedTopologies` configuration like this:
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp2
+parameters:
+  fsType: ext4
+  type: gp2
+provisioner: kubernetes.io/aws-ebs
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowedTopologies:
+- matchLabelExpressions:
+  - key: failure-domain.beta.kubernetes.io/zone
+    values:
+    - eu-central-1a
+    - eu-central-1b
+```
+
+(if you already provisioned a EKS cluster like me, get your already defined `StorageClass` with `k get storageclasses gp2 -o yaml` and add the `allowedTopologies` configuration)
+
+As you see the `allowedTopologies` configuration defines that the `failure-domain.beta.kubernetes.io/zone` of the `PersistentVolume` must be either in `eu-central-1a` or `eu-central-1b` - not `eu-central-1c`!
+
+Next apply this `StorageClass` and delete the `PersistentVolumeClaim`. Now add `storageClassName: gp2` to the PersistendVolumeClaim definition in [resources.yml](tekton-ci-config/resources.yml):
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: buildpacks-source-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Mi
+  storageClassName: gp2
+```
+
+and then re-applying it will resolve the problem.
+
+
+
+
+
+
 # Ideas
 
 https://hub.tekton.dev/tekton/task/create-gitlab-release
@@ -1851,3 +1979,10 @@ https://aws.amazon.com/blogs/opensource/kubernetes-ingress-aws-alb-ingress-contr
 Pulumi AWS Load Balancer Controller support: https://github.com/pulumi/pulumi-eks/issues/29
 
 https://pulumi.awsworkshop.io/50_eks_platform/30_deploy_ingress_controller.html
+
+
+#### Deploy your own Tekton Hub instance
+
+https://github.com/tektoncd/hub#deploy-your-own-instance
+
+> You can deploy your own instance of Tekton Hub. You can find the documentation https://github.com/tektoncd/hub/blob/main/docs/DEPLOYMENT.md
