@@ -1,0 +1,45 @@
+apiVersion: tekton.dev/v1beta1
+kind: Pipeline
+metadata:
+  name: generic-gitlab-set-status
+spec:
+  params:
+    - name: STATE
+      type: string
+      description: The gitlab-set-status Tasks state to set. Can be one of the following pending, running, success, failed, or canceled.
+    - name: PIPELINE_NAME
+      type: string
+      description: The calling pipelines name.
+    - name: REPO_PATH_ONLY
+      type: string
+      description: GitLab group & repo name only (e.g. jonashackt/microservice-api-spring-boot)
+    - name: SOURCE_REVISION
+      description: The branch, tag or SHA to checkout.
+      default: ""
+    - name: GITLAB_TOOLTIP
+      type: string
+      description: The tooltip to be shown in the GitLab Pipelines details view.
+
+  tasks:
+    - name: report-pipeline-start-to-gitlab
+      taskRef:
+        name: gitlab-set-status
+      params:
+        - name: "STATE"
+          value: "$(params.STATE)"
+        - name: "GITLAB_HOST_URL"
+          value: "gitlab.com"
+        - name: "REPO_FULL_NAME"
+          value: "$(params.REPO_PATH_ONLY)"
+        - name: "GITLAB_TOKEN_SECRET_NAME"
+          value: "gitlab-api-secret"
+        - name: "GITLAB_TOKEN_SECRET_KEY"
+          value: "token"
+        - name: "SHA"
+          value: "$(params.SOURCE_REVISION)"
+        - name: "TARGET_URL"
+          value: "{{TEKTON_DASHBOARD_HOST}}/#/namespaces/default/pipelineruns/$(params.PIPELINE_NAME)"
+        - name: "CONTEXT"
+          value: "tekton-pipeline"
+        - name: "DESCRIPTION"
+          value: "$(params.GITLAB_TOOLTIP)"
