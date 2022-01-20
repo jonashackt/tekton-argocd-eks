@@ -1,0 +1,34 @@
+apiVersion: tekton.dev/v1beta1
+kind: PipelineRun
+metadata:
+  generateName: buildpacks-test-pipeline-run-
+spec:
+  serviceAccountName: buildpacks-service-account-gitlab # Only needed if you set up authorization
+  pipelineRef:
+    name: buildpacks-test-pipeline
+  workspaces:
+    - name: source-workspace
+      subPath: source
+      persistentVolumeClaim:
+        claimName: buildpacks-source-pvc
+    - name: cache-workspace
+      subPath: cache
+      persistentVolumeClaim:
+        claimName: buildpacks-source-pvc
+    - name: maven-repo-cache
+      subPath: maven-repo-cache
+      persistentVolumeClaim:
+        claimName: buildpacks-source-pvc
+  params:
+    - name: IMAGE
+      value: registry.gitlab.com/jonashackt/microservice-api-spring-boot # This defines the name of output image
+    - name: SOURCE_URL
+      value: https://gitlab.com/jonashackt/microservice-api-spring-boot
+    - name: REPO_PATH_ONLY
+      value: jonashackt/microservice-api-spring-boot
+    - name: SOURCE_REVISION
+      value: 3c4131f8566ef157244881bacc474543ef96755d
+    - name: GITLAB_HOST
+      value: gitlab.com
+    - name: TEKTON_DASHBOARD_HOST
+      value: http://abd1c6f235c9642bf9d4cdf632962298-1232135946.eu-central-1.elb.amazonaws.com
