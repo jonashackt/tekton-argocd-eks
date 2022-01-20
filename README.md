@@ -467,7 +467,7 @@ secrets:
 
 https://buildpacks.io/docs/tools/tekton/#41-pvcs
 
-Create new [resources.yml](tekton-ci-config/resources.yml):
+Create new [buildpacks-source-pvc.yml](tekton-ci-config/buildpacks-source-pvc.yml):
 
 ```yaml
 apiVersion: v1
@@ -551,7 +551,7 @@ spec:
 And now apply all three configs with:
 
 ```shell
-kubectl apply -f tekton-ci-config/resources.yml -f tekton-ci-config/ghcr-service-account.yml -f tekton-ci-config/pipeline.yml
+kubectl apply -f tekton-ci-config/buildpacks-source-pvc.yml -f tekton-ci-config/ghcr-service-account.yml -f tekton-ci-config/pipeline.yml
 ```
 
 ### Create PipelineRun
@@ -1937,7 +1937,7 @@ The Tekton pipeline failed and I had to dig into the Pod logs to find the error 
 
 ![node-volume-node-affinity-conflict](screenshots/node-volume-node-affinity-conflict.png)
 
-As described in https://stackoverflow.com/a/55514852/4964553 and the section `Statefull applications` in https://vorozhko.net/120-days-of-aws-eks-kubernetes-in-staging to nodes are provisioned on other AWS availability zones as the persistent volume (PV), which is created by applying our PersistendVolumeClaim in [resources.yml](tekton-ci-config/resources.yml).
+As described in https://stackoverflow.com/a/55514852/4964553 and the section `Statefull applications` in https://vorozhko.net/120-days-of-aws-eks-kubernetes-in-staging two nodes are provisioned on other AWS availability zones as the persistent volume (PV), which is created by applying our PersistendVolumeClaim in [buildpacks-source-pvc.yml](tekton-ci-config/buildpacks-source-pvc.yml).
 
 To double check that, you need to look into/describe your nodes:
 
@@ -1992,7 +1992,7 @@ Annotations:        node.alpha.kubernetes.io/ttl: 0
 ...
 ```
 
-Now looking into our `PersistentVolume` automatically provisioned after applying our `PersistentVolumeClaim` with [resources.yml](tekton-ci-config/resources.yml), we see the problem already:
+Now looking into our `PersistentVolume` automatically provisioned after applying our `PersistentVolumeClaim` with [buildpacks-source-pvc.yml](tekton-ci-config/buildpacks-source-pvc.yml), we see the problem already:
 
 ```shell
 $ k get pv
@@ -2009,7 +2009,7 @@ Annotations:       kubernetes.io/createdby: aws-ebs-dynamic-provisioner
 
 The `PersistentVolume` was provisioned to `topology.kubernetes.io/zone` in az `eu-central-1c`, which makes our Pods complain about not finding their volume - since they are in a completely different az.
 
-As [stated in the Kubernetes docs](https://kubernetes.io/docs/concepts/storage/storage-classes/#allowed-topologies) one solution to the problem is to add a `allowedTopologies` configuration like this:
+As [stated in the Kubernetes docs](https://kubernetes.io/docs/concepts/storage/storage-classes/#allowed-topologies) one solution to the problem is to add a `allowedTopologies` configuration to the `StorageClass` like this:
 
 ```yaml
 apiVersion: storage.k8s.io/v1
@@ -2030,11 +2030,21 @@ allowedTopologies:
     - eu-central-1b
 ```
 
-(if you already provisioned a EKS cluster like me, get your already defined `StorageClass` with `k get storageclasses gp2 -o yaml` and add the `allowedTopologies` configuration)
+If you already provisioned a EKS cluster like me, you need to show your already defined `StorageClass` with
+
+```
+k get storageclasses gp2 -o yaml
+```
+
+and add the `allowedTopologies` configuration with:
+
+```
+k apply -f tekton-ci-config/storage-class.yml
+```
 
 As you see the `allowedTopologies` configuration defines that the `failure-domain.beta.kubernetes.io/zone` of the `PersistentVolume` must be either in `eu-central-1a` or `eu-central-1b` - not `eu-central-1c`!
 
-Next apply this `StorageClass` and delete the `PersistentVolumeClaim`. Now add `storageClassName: gp2` to the PersistendVolumeClaim definition in [resources.yml](tekton-ci-config/resources.yml):
+Next apply this `StorageClass` and delete the `PersistentVolumeClaim`. Now add `storageClassName: gp2` to the PersistendVolumeClaim definition in [buildpacks-source-pvc.yml](tekton-ci-config/buildpacks-source-pvc.yml):
 
 ```yaml
 apiVersion: v1

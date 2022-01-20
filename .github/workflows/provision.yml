@@ -145,7 +145,7 @@ jobs:
               --namespace default \
               --save-config --dry-run=client -o yaml | kubectl apply -f -
           echo "--- apply  buildpacks PVC, ServiceAccount & Pipeline"
-          kubectl apply -f tekton-ci-config/resources.yml -f tekton-ci-config/gitlab-cr-service-account.yml -f tekton-ci-config/pipeline.yml
+          kubectl apply -f tekton-ci-config/storage-class.yml -f tekton-ci-config/buildpacks-source-pvc.yml -f tekton-ci-config/gitlab-cr-service-account.yml -f tekton-ci-config/pipeline.yml
           echo "--- Insert Tekton dashboard url into generic-gitlab-set-status Pipeline config and apply it (see https://stackoverflow.com/a/70152914/4964553)"
           TEKTON_DASHBOARD_HOST="${{ steps.dashboard-expose.outputs.dashboard_host }}"
           sed "s#{{TEKTON_DASHBOARD_HOST}}#$TEKTON_DASHBOARD_HOST#g" tekton-ci-config/generic-gitlab-set-status.yml | kubectl apply -f -
