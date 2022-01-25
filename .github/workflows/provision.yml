@@ -235,7 +235,7 @@ jobs:
           echo "--- Create Secret to access GitHub Container Registry"
           kubectl create secret docker-registry github-container-registry \
               --docker-server=ghcr.io \
-              --docker-username=${{ secrets.GITLAB_CR_USER }} \
-              --docker-password=${{ secrets.GITLAB_CR_PASSWORD }} \
+              --docker-username=${{ secrets.GHCR_USER }} \
+              --docker-password=${{ secrets.GHCR_PASSWORD }} \
               --namespace default \
               --save-config --dry-run=client -o yaml | kubectl apply -f -
