@@ -2065,6 +2065,83 @@ and then re-applying it will resolve the problem.
 
 
 
+# GitOps with ArgoCD
+
+### Install ArgoCD
+
+https://argo-cd.readthedocs.io/en/stable/getting_started/
+
+```shell
+kubectl create namespace argocd
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+```
+
+### Install Argo CLI
+
+```shell
+brew install argocd
+```
+
+
+### Access The Argo CD API Server
+
+You can expose the ArgoCD API Server via Loadbalancer, Ingress or port forwarding to localhost: https://argo-cd.readthedocs.io/en/stable/getting_started/#3-access-the-argo-cd-api-server
+
+```shell
+kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+```
+
+Get the `hostname` with
+
+```shell
+k get svc -n argocd argocd-server --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+```
+
+
+### Get admin password, login to argocd-server and change password
+
+Obtain ArgoCD admin account's initial password
+
+```shell
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo
+```
+
+Login to `argocd-server` hostname, which was exposed as LoadBalancer - using username `admin` and the initial password obtained above:
+
+```shell
+argocd login yourservername.eu-central-1.elb.amazonaws.com
+```
+
+This will result in a hopefully successful login like this:
+
+```shell
+argocd login yourservername.eu-central-1.elb.amazonaws.com
+WARNING: server certificate had error: x509: certificate is valid for localhost, argocd-server, argocd-server.argocd, argocd-server.argocd.svc, argocd-server.argocd.svc.cluster.local, not a198628202c514bb6b81d1ad5688dc91-838360533.eu-central-1.elb.amazonaws.com. Proceed insecurely (y/n)? y
+Username: admin
+Password:
+'admin:login' logged in successfully
+Context 'yourservername.eu-central-1.elb.amazonaws.com' updated
+```
+
+Finally change the initial password via:
+
+```shell
+argocd account update-password
+```
+
+### Access ArgoCD UI
+
+Using your Browser open `yourservername.eu-central-1.elb.amazonaws.com` and accept the certificate warnings. Then sign in using the `admin` user credentials from above:
+
+![argocd-ui-first-login](screenshots/argocd-ui-first-login.png)
+
+
+If you don't want [to deploy to a different Kubernetes cluster than the current one where Argo was installed](https://argo-cd.readthedocs.io/en/stable/getting_started/#5-register-a-cluster-to-deploy-apps-to-optional), then everything should be prepared to deploy our first application.
+
+
+
+
+
 
 
 # Ideas
