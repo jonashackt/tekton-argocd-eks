@@ -2067,7 +2067,9 @@ and then re-applying it will resolve the problem.
 
 # GitOps with ArgoCD
 
-### Install ArgoCD
+## ArgoCD Installation & Dashboard access
+
+#### Install ArgoCD
 
 https://argo-cd.readthedocs.io/en/stable/getting_started/
 
@@ -2076,14 +2078,14 @@ kubectl create namespace argocd
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 ```
 
-### Install Argo CLI
+#### Install Argo CLI
 
 ```shell
 brew install argocd
 ```
 
 
-### Access The Argo CD API Server
+#### Access The Argo CD API Server
 
 You can expose the ArgoCD API Server via Loadbalancer, Ingress or port forwarding to localhost: https://argo-cd.readthedocs.io/en/stable/getting_started/#3-access-the-argo-cd-api-server
 
@@ -2098,7 +2100,7 @@ k get svc -n argocd argocd-server --output=jsonpath='{.status.loadBalancer.ingre
 ```
 
 
-### Get admin password, login to argocd-server and change password
+#### Get admin password, login to argocd-server and change password
 
 Obtain ArgoCD admin account's initial password
 
@@ -2129,7 +2131,7 @@ Finally change the initial password via:
 argocd account update-password
 ```
 
-### Access ArgoCD UI
+#### Access ArgoCD UI
 
 Using your Browser open `yourservername.eu-central-1.elb.amazonaws.com` and accept the certificate warnings. Then sign in using the `admin` user credentials from above:
 
@@ -2139,8 +2141,83 @@ Using your Browser open `yourservername.eu-central-1.elb.amazonaws.com` and acce
 If you don't want [to deploy to a different Kubernetes cluster than the current one where Argo was installed](https://argo-cd.readthedocs.io/en/stable/getting_started/#5-register-a-cluster-to-deploy-apps-to-optional), then everything should be prepared to deploy our first application.
 
 
+## ArgoCD installation & configuration within GitHub Actions
+
+#### ArgoCD installation in GH Actions
+
+Let's just create a new GitHub Actions job for this purpose, which also needs the `kubeconfig` from the first Pulumi task which bootstraps our EKS cluster:
+
+```yaml
+  install-and-run-argocd-on-eks:
+    runs-on: ubuntu-latest
+    needs: provision-eks-with-pulumi
+    environment:
+      name: argocd-dashboard
+      url: ${{ steps.dashboard-expose.outputs.dashboard_host }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@master
+      # We must use single quotes (!!!) here to access the kubeconfig like this:
+      # echo '${{ needs.provision-eks-with-pulumi.outputs.kubeconfig }}' > ~/.kube/config
+      # Otherwise we'll run into errors like (see https://stackoverflow.com/a/15930393/4964553):
+      # "error: error loading config file "/home/runner/.kube/config": yaml: did not find expected ',' or '}'"
+      - name: Configure kubeconfig to use with kubectl from provisioning job
+        run: |
+          mkdir ~/.kube
+          echo '${{ needs.provision-eks-with-pulumi.outputs.kubeconfig }}' > ~/.kube/config
+          echo "--- Checking connectivity to cluster"
+          kubectl get nodes
+
+      - name: Install ArgoCD
+        run: |
+          echo "--- Create argo namespace and install it"
+          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+```
+
+As you can see we must `apply` the `argocd` namespace here instead of `create`ing it - otherwise the workflow will only run once.
 
 
+#### Expose the ArgoCD dashboard as GitHub Actions environment
+
+We should also configure a GitHub Actions environment for our ArgoCD dashboard (as we already did with the Tekton dashboard):
+
+```yaml
+      - name: Expose ArgoCD Dashboard as GitHub environment
+        id: dashboard-expose
+        run: |
+          echo "--- Expose ArgoCD Dashboard via K8s Service"
+          kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+          echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
+          until kubectl get service/argocd-server -n argocd --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
+          echo "--- Create GitHub environment var"
+          DASHBOARD_HOST="http://$(kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+          echo "The ArgoCD dashboard is accessible at $DASHBOARD_HOST - creating GitHub Environment"
+          echo "::set-output name=dashboard_host::$DASHBOARD_HOST"
+```
+
+
+## ArgoCD application deployment
+
+We need a example project here - so what about https://github.com/jonashackt/restexamples and it's GitHub Container Registry image https://github.com/jonashackt/restexamples/pkgs/container/restexamples ?!
+
+To access the GHCR we need to also create a secret inside our EKS cluster, so let's do that in our Actions workflow too:
+
+```yaml
+      - name: Create GitHub Container Registry Secret to be able to pull from ghcr.io
+        run: |
+          echo "--- Create Secret to access GitHub Container Registry"
+          kubectl create secret docker-registry github-container-registry \
+              --docker-server=ghcr.io \
+              --docker-username=${{ secrets.GHCR_USER }} \
+              --docker-password=${{ secrets.GHCR_PASSWORD }} \
+              --namespace default \
+              --save-config --dry-run=client -o yaml | kubectl apply -f -
+```
+
+Don't forget to create the needed repository secrets `GHCR_USER` and `GHCR_PASSWORD` containing a GitHub PAT (since we can't simply use the `GITHUB_TOKEN` as we want to access another repositorie's images):
+
+![github-container-registry-access-pat-secrets](screenshots/github-container-registry-access-pat-secrets.png)
 
 
 
