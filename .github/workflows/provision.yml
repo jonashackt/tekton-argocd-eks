@@ -135,10 +135,10 @@ jobs:
           kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/gitlab-set-status/0.1/gitlab-set-status.yaml
           kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/maven/0.2/maven.yaml
 
-      - name: Create Container Registry Secret & apply buildpacks PVC, ServiceAccount & Pipeline
+      - name: Create GitLab Container Registry Secret & apply buildpacks PVC, ServiceAccount & Pipeline
         run: |
           echo "--- Create Secret to access GitLab Container Registry"
-          kubectl create secret docker-registry docker-user-pass \
+          kubectl create secret docker-registry gitlab-container-registry \
               --docker-server=registry.gitlab.com \
               --docker-username=${{ secrets.GITLAB_CR_USER }} \
               --docker-password=${{ secrets.GITLAB_CR_PASSWORD }} \
@@ -192,3 +192,50 @@ jobs:
           --data-binary "@tekton-ci-config/triggers/gitlab-push-test-event.json" \
           $TEKTON_EVENTLISTENER_INGRESS_HOST
 
+  install-and-run-argocd-on-eks:
+    runs-on: ubuntu-latest
+    needs: provision-eks-with-pulumi
+    environment:
+      name: argocd-dashboard
+      url: ${{ steps.dashboard-expose.outputs.dashboard_host }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@master
+      # We must use single quotes (!!!) here to access the kubeconfig like this:
+      # echo '${{ needs.provision-eks-with-pulumi.outputs.kubeconfig }}' > ~/.kube/config
+      # Otherwise we'll run into errors like (see https://stackoverflow.com/a/15930393/4964553):
+      # "error: error loading config file "/home/runner/.kube/config": yaml: did not find expected ',' or '}'"
+      - name: Configure kubeconfig to use with kubectl from provisioning job
+        run: |
+          mkdir ~/.kube
+          echo '${{ needs.provision-eks-with-pulumi.outputs.kubeconfig }}' > ~/.kube/config
+          echo "--- Checking connectivity to cluster"
+          kubectl get nodes
+
+      - name: Install ArgoCD
+        run: |
+          echo "--- Create argo namespace and install it"
+          kubectl create namespace argocd
+          kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+      - name: Expose ArgoCD Dashboard as GitHub environment
+        id: dashboard-expose
+        run: |
+          echo "--- Expose ArgoCD Dashboard via K8s Service"
+          kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+          echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
+          until kubectl get service/argocd-server -n argocd --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
+          echo "--- Create GitHub environment var"
+          DASHBOARD_HOST="http://$(kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+          echo "The ArgoCD dashboard is accessible at $DASHBOARD_HOST - creating GitHub Environment"
+          echo "::set-output name=dashboard_host::$DASHBOARD_HOST"
+
+      - name: Create GitHub Container Registry Secret to be able to pull from ghcr.io
+        run: |
+          echo "--- Create Secret to access GitHub Container Registry"
+          kubectl create secret docker-registry github-container-registry \
+              --docker-server=ghcr.io \
+              --docker-username=${{ secrets.GITLAB_CR_USER }} \
+              --docker-password=${{ secrets.GITLAB_CR_PASSWORD }} \
+              --namespace default \
+              --save-config --dry-run=client -o yaml | kubectl apply -f -
