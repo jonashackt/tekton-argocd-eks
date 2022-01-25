@@ -2196,6 +2196,7 @@ We should also configure a GitHub Actions environment for our ArgoCD dashboard (
           echo "::set-output name=dashboard_host::$DASHBOARD_HOST"
 ```
 
+![argo-dashboard-as-github-environment](screenshots/argo-dashboard-as-github-environment.png)
 
 ## ArgoCD application deployment
 
@@ -2219,6 +2220,73 @@ Don't forget to create the needed repository secrets `GHCR_USER` and `GHCR_PASSW
 
 ![github-container-registry-access-pat-secrets](screenshots/github-container-registry-access-pat-secrets.png)
 
+
+#### Deploy via ArgoCD UI
+
+See https://argo-cd.readthedocs.io/en/stable/getting_started/#creating-apps-via-ui
+
+![argo-dashboard-deploy-app-manually](screenshots/argo-dashboard-deploy-app-manually.png)
+
+In order to be able to deploy an application with ArgoCD UI, we need to fill in the source url and names etc. But we also need to provide a `path` and this must contain some form of Kubernetes `Deployment` and `Service` configuration like this: 
+
+restexamples-deployment.yml
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: restexamples
+spec:
+  replicas: 1
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app: restexamples
+  template:
+    metadata:
+      labels:
+        app: restexamples
+    spec:
+      containers:
+        - image: ghcr.io/jonashackt/restexamples:latest
+          name: restexamples
+          ports:
+            - containerPort: 8090
+      imagePullSecrets:
+        - name: github-container-registry
+```
+
+restexamples-service.yml
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: restexamples
+spec:
+  ports:
+    - port: 80
+      targetPort: 8090
+  selector:
+    app: restexamples
+
+```
+
+See both in the repo also https://github.com/jonashackt/restexamples/tree/argocd/deployment
+
+If you filled out everything, click on `create` and then manually on `sync`. Now your app should be deployed to the EKS cluster:
+
+![argo-cd-first-deployment-synced](screenshots/argo-cd-first-deployment-synced.png)
+
+Now have a look into `k9s` - you should see your app beeing deployed as a `Service` and as a `Deployment` incl. Pods etc.
+
+You can simply use a Port Forwarding with kubectl to access your service. For the example service this is:
+
+```shell
+kubectl port-forward svc/restexamples 8090:80
+```
+
+Now access the deployed example app at http://localhost:8090/restexamples/hello in your Browser.
 
 
 # Ideas
