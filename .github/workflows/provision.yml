@@ -195,11 +195,7 @@ jobs:
       - name: Create Secret for GitHub based configuration repository
         run: |
           echo "--- Create Secret for GitHub based configuration repository"
-          kubectl create secret basic-auth github-repo-access \
-              --username=${{ secrets.GHCR_USER }} \
-              --password=${{ secrets.GHCR_PASSWORD }} \
-              --namespace default \
-              --save-config --dry-run=client -o yaml | kubectl apply -f -
+          sed "s#{{GITLAB_PUSH_TOKEN}}#${{ secrets.GITLAB_PUSH_TOKEN }}#g" gitlab-push-secret.yml | kubectl apply -f -
 
   install-and-run-argocd-on-eks:
     runs-on: ubuntu-latest
