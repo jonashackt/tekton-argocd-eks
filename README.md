@@ -2198,7 +2198,7 @@ We should also configure a GitHub Actions environment for our ArgoCD dashboard (
 
 ![argo-dashboard-as-github-environment](screenshots/argo-dashboard-as-github-environment.png)
 
-## ArgoCD application deployment
+## ArgoCD application deployment (push)
 
 We need a example project here - so what about https://github.com/jonashackt/restexamples and it's GitHub Container Registry image https://github.com/jonashackt/restexamples/pkgs/container/restexamples ?!
 
@@ -2287,6 +2287,112 @@ kubectl port-forward svc/restexamples 8090:80
 ```
 
 Now access the deployed example app at http://localhost:8090/restexamples/hello in your Browser.
+
+
+If you want to play around a bit, you can edit the `deploy`ment and set the replicas to 3 for example - now the ArgoUI shows the 3 pods now beeing spun up:
+
+![argo-cd-ui-edit-replicaset](screenshots/argo-cd-ui-edit-replicaset.png)
+
+
+#### Deploy via ArgoCD CLI
+
+Alternatively we can create our Argo app via the CLI:
+
+```
+argocd app create restexamples-cli --repo https://github.com/jonashackt/restexamples.git --path deployment --dest-server https://kubernetes.default.svc --dest-namespace default --revision argocd
+```
+
+
+## Argo application deployment from CI/CD-Pipeline (pull-based GitOps style)
+
+https://argo-cd.readthedocs.io/en/stable/user-guide/ci_automation/
+
+> Argo CD follows the GitOps model of deployment, where desired configuration changes are first pushed to Git, and the cluster state then syncs to the desired state in git.
+
+It seems to be good practice to separate the Kubernetes manifests from your application (https://argo-cd.readthedocs.io/en/stable/user-guide/ci_automation/#update-the-local-manifests-using-your-preferred-templating-tool-and-push-the-changes-to-git)
+
+> The use of a different Git repository to hold your kubernetes manifests (separate from your application source code), is highly recommended.
+
+Also from the best ArgoCD best practices section (https://argo-cd.readthedocs.io/en/stable/user-guide/best_practices/):
+
+> It provides a clean separation of application code vs. application config. There will be times when you wish to modify just the manifests without triggering an entire CI build. For example, you likely do not want to trigger a build if you simply wish to bump the number of replicas in a Deployment spec.
+
+and
+
+> If you are automating your CI pipeline, pushing manifest changes to the same Git repository can trigger an infinite loop of build jobs and Git commit triggers.
+
+
+#### Separating the application's configuration from it's source code
+
+Our example project https://github.com/jonashackt/restexamples right now holds both: application configuration AND source code.
+
+Let's split that up into 2 repos. All Kubernetes configuration is now held in this new repo https://github.com/jonashackt/restexamples-k8s-config/tree/argocd
+
+We need to tell Argo about this new configuration location by creating a new app based on this repo:
+
+```shell
+argocd app create restexamples-cli --repo https://github.com/jonashackt/restexamples-k8s-config.git --path deployment --dest-server https://kubernetes.default.svc --dest-namespace default --revision argocd --sync-policy auto
+```
+
+Our app should be created - the UI should show us the last commit `Update restexamples to f01ffa895db8b7e25d5` as the latest sync status:
+
+![argo-cd-deployment-before-sync](screenshots/argo-cd-deployment-before-sync.png)
+
+
+#### Dynamically update Kubernetes deployment manifests based on the Git commit hash
+
+In CI/CD Pipelines you typically use the Git commit hash to tag your container image, which has just been build inside the pipeline.
+
+So inside the restexamples-k8s-config root directory, run a `kubectl patch`:
+
+```shell
+GIT_COMMIT_HASH=8f970d44b4a91847230b8a8794c160bcbda1ec28f8866492f73aa3c3e470f853
+IMAGE_NAME=ghcr.io/jonashackt/restexamples:$GIT_COMMIT_HASH
+kubectl patch --local -f deployment/restexamples-deployment.yml -p '{"spec":{"template":{"spec":{"containers":[{"name":"restexamples","image":"ghcr.io/jonashackt/restexamples:latest@sha256:"$GIT_COMMIT_HASH""}]}}}}' -o yaml > temp.yml && mv temp.yml deployment/restexamples-deployment.yml
+```
+
+Sadly this doesn't seem to work, [since Kubernetes doesn't seem to provide the ability to substitute variables inside json with kubectl](https://stackoverflow.com/a/63513867/4964553).
+
+So what about using yq for that - see https://learnk8s.io/templating-yaml-with-code#templating-with-yq
+
+Therefore install yq with:
+
+```shell
+brew install yq
+```
+
+Reading our `image` tag from `deployment/restexamples-deployment.yml` looks like this:
+
+```shell
+yq e '.spec.template.spec.containers[0].image' deployment/restexamples-deployment.yml
+```
+
+so: How to pass environment variable as value to yq?
+
+https://github.com/mikefarah/yq/issues/468:
+
+```shell
+GIT_COMMIT_HASH=8f970d44b4a91847230b8a8794c160bcbda1ec28f8866492f73aa3c3e470f853
+IMAGE_NAME=ghcr.io/jonashackt/restexamples@sha256:$GIT_COMMIT_HASH
+yq e ".spec.template.spec.containers[0].image = \"$IMAGE_NAME\"" -i deployment/restexamples-deployment.yml
+```
+
+Now finally add this to our configuration repository:
+
+```shell
+git add .
+git commit -m "Update restexamples to $GIT_COMMIT_HASH"
+git push
+```
+
+Now we should grab a coffee (if it's done in under 3 minutes, since Argo `polles for changes every 3 minutes`) and have a look at the UI:
+
+![argo-cd-deployment-after-sync](screenshots/argo-cd-deployment-after-sync.png)
+
+There we see the new version of our app beeing deployed, while the old pods are gradually beeing undeployed. 
+
+
+
 
 
 # Ideas
