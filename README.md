@@ -2346,8 +2346,8 @@ In CI/CD Pipelines you typically use the Git commit hash to tag your container i
 So inside the restexamples-k8s-config root directory, run a `kubectl patch`:
 
 ```shell
-GIT_COMMIT_HASH=8f970d44b4a91847230b8a8794c160bcbda1ec28f8866492f73aa3c3e470f853
-IMAGE_NAME=ghcr.io/jonashackt/restexamples:$GIT_COMMIT_HASH
+GIT_COMMIT_HASH=f01ffa895db8b7e25d5410ce4d33493fd8db9d8e8b089aaa265020be8099ff38
+IMAGE_NAME=ghcr.io/jonashackt/restexamples@sha256:$GIT_COMMIT_HASH
 kubectl patch --local -f deployment/restexamples-deployment.yml -p '{"spec":{"template":{"spec":{"containers":[{"name":"restexamples","image":"ghcr.io/jonashackt/restexamples:latest@sha256:"$GIT_COMMIT_HASH""}]}}}}' -o yaml > temp.yml && mv temp.yml deployment/restexamples-deployment.yml
 ```
 
@@ -2372,7 +2372,7 @@ so: How to pass environment variable as value to yq?
 https://github.com/mikefarah/yq/issues/468:
 
 ```shell
-GIT_COMMIT_HASH=8f970d44b4a91847230b8a8794c160bcbda1ec28f8866492f73aa3c3e470f853
+GIT_COMMIT_HASH=f01ffa895db8b7e25d5410ce4d33493fd8db9d8e8b089aaa265020be8099ff38
 IMAGE_NAME=ghcr.io/jonashackt/restexamples@sha256:$GIT_COMMIT_HASH
 yq e ".spec.template.spec.containers[0].image = \"$IMAGE_NAME\"" -i deployment/restexamples-deployment.yml
 ```
@@ -2390,6 +2390,35 @@ Now we should grab a coffee (if it's done in under 3 minutes, since Argo `polles
 ![argo-cd-deployment-after-sync](screenshots/argo-cd-deployment-after-sync.png)
 
 There we see the new version of our app beeing deployed, while the old pods are gradually beeing undeployed. 
+
+
+## Integrate ArgoCD deployment into Tekton pipeline
+
+#### Getting the image sha
+
+We can use the `APP_IMAGE_DIGEST` result variable from our buildpacks Tekton Task https://hub.tekton.dev/tekton/task/buildpacks
+
+
+#### Authenticating the git-cli task to push to GitHub
+
+Now we need to commit and push the new image tag to our config repository. Therefore we can use the Tekton git-cli task https://hub.tekton.dev/tekton/task/git-cli
+
+Maybe we can use the already existing GitHub PAT we created for the GitHub Container Registry access?!
+
+But we need to create a new `basic-auth` Secret in our GitHub Actions pipeline like this:
+
+```yaml
+      - name: Create Secret for GitHub based configuration repository
+        run: |
+          echo "--- Create Secret for GitHub based configuration repository"
+          kubectl create secret basic-auth github-repo-access \
+              --username=${{ secrets.GHCR_USER }} \
+              --password=${{ secrets.GHCR_PASSWORD }} \
+              --namespace default \
+              --save-config --dry-run=client -o yaml | kubectl apply -f -
+```
+
+
 
 
 
@@ -2481,3 +2510,10 @@ https://pulumi.awsworkshop.io/50_eks_platform/30_deploy_ingress_controller.html
 https://github.com/tektoncd/hub#deploy-your-own-instance
 
 > You can deploy your own instance of Tekton Hub. You can find the documentation https://github.com/tektoncd/hub/blob/main/docs/DEPLOYMENT.md
+
+
+# Links
+
+https://medium.com/dictcp/kubernetes-gui-clients-in-2020-kube-dashboard-lens-octant-and-kubenav-ce28df9bb0f0
+
+https://piotrminkowski.com/2021/08/05/kubernetes-ci-cd-with-tekton-and-argocd/

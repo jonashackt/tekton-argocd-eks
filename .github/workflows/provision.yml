@@ -192,6 +192,15 @@ jobs:
           --data-binary "@tekton-ci-config/triggers/gitlab-push-test-event.json" \
           $TEKTON_EVENTLISTENER_INGRESS_HOST
 
+      - name: Create Secret for GitHub based configuration repository
+        run: |
+          echo "--- Create Secret for GitHub based configuration repository"
+          kubectl create secret basic-auth github-repo-access \
+              --username=${{ secrets.GHCR_USER }} \
+              --password=${{ secrets.GHCR_PASSWORD }} \
+              --namespace default \
+              --save-config --dry-run=client -o yaml | kubectl apply -f -
+
   install-and-run-argocd-on-eks:
     runs-on: ubuntu-latest
     needs: provision-eks-with-pulumi
