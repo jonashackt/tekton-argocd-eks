@@ -195,7 +195,7 @@ jobs:
       - name: Create Secret for GitHub based configuration repository
         run: |
           echo "--- Create Secret for GitHub based configuration repository"
-          sed "s#{{GITLAB_PUSH_TOKEN}}#${{ secrets.GITLAB_PUSH_TOKEN }}#g" gitlab-push-secret.yml | kubectl apply -f -
+          sed "s#{{GITLAB_PUSH_TOKEN}}#${{ secrets.GITLAB_PUSH_TOKEN }}#g" tekton-ci-config/gitlab-push-secret.yml | kubectl apply -f -
 
   install-and-run-argocd-on-eks:
     runs-on: ubuntu-latest
