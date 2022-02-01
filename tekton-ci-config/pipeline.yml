@@ -16,11 +16,17 @@ spec:
     - name: SOURCE_REVISION
       description: The branch, tag or SHA to checkout.
       default: ""
+    - name: CONFIG_URL
+      description: The git repo's matching config repo url.
+    - name: CONFIG_REVISION
+      description: The branch, tag or SHA to checkout.
+      default: ""
 
   workspaces:
     - name: maven-repo-cache # Maven repository cahce, see https://developers.redhat.com/blog/2020/02/26/speed-up-maven-builds-in-tekton-pipelines#run_a_maven_pipeline
     - name: source-workspace # Directory where application source is located. (REQUIRED)
     - name: cache-workspace # Directory where cache is stored (OPTIONAL)
+    - name: config-workspace # here the config repository is stored
   tasks:
     - name: report-pipeline-start-to-gitlab
       taskRef:
@@ -38,6 +44,7 @@ spec:
           value: "Building your commit in Tekton"
         - name: "PIPELINE_NAME"
           value: "$(context.pipelineRun.name)"
+
     - name: fetch-repository # This task fetches a repository from github, using the `git-clone` task you installed
       taskRef:
         name: git-clone
@@ -51,10 +58,7 @@ spec:
           value: "$(params.SOURCE_URL)"
         - name: revision
           value: "$(params.SOURCE_REVISION)"
-        - name: subdirectory
-          value: ""
-        - name: deleteExisting
-          value: "true"
+
     - name: maven-test
       taskRef:
         name: maven
@@ -70,6 +74,7 @@ spec:
           workspace: source-workspace
         - name: maven-settings
           workspace: maven-repo-cache
+
     - name: buildpacks # This task uses the `buildpacks` task to build the application
       taskRef:
         name: buildpacks
@@ -82,11 +87,92 @@ spec:
           workspace: cache-workspace
       params:
         - name: APP_IMAGE
-          value: "$(params.IMAGE)"
+          value: "$(params.IMAGE):$(params.SOURCE_REVISION)"
         - name: CACHE_IMAGE
           value: "$(params.IMAGE):paketo-build-cache"
         - name: BUILDER_IMAGE
           value: paketobuildpacks/builder:base # This is the builder we want the task to use (REQUIRED)
+
+    - name: fetch-config-repository
+      taskRef:
+        name: git-clone
+      runAfter:
+        - buildpacks
+      workspaces:
+        - name: output
+          workspace: config-workspace
+      params:
+        - name: url
+          value: "$(params.CONFIG_URL)"
+        - name: revision
+          value: "$(params.CONFIG_REVISION)"
+
+    - name: dump-contents
+      taskRef:
+        name: dump-directory
+      runAfter:
+        - fetch-config-repository
+      workspaces:
+        - name: source
+          workspace: config-workspace
+
+#    - name: substitute-config-image-name
+#      taskRef:
+#        name: yq
+#      runAfter:
+#        - fetch-config-repository
+#      workspaces:
+#        - name: source
+#          workspace: config-workspace
+#      params:
+#        - name: files
+#          value:
+#          - "./deployment/deployment.yml"
+#        - name: expression
+#          value: '.spec.template.spec.containers[0].image = "\"$(params.IMAGE)\"@sha256:\"$(params.APP_IMAGE_DIGEST)\""'
+
+    - name: substitute-config-image-name-manual
+      taskRef:
+        name: substitute-with-yq
+      runAfter:
+        - dump-contents
+      workspaces:
+        - name: source
+          workspace: config-workspace
+      params:
+        - name: IMAGE_NAME
+          value: "$(params.IMAGE):$(params.SOURCE_REVISION)"
+
+    - name: dump-contents-substitution
+      taskRef:
+        name: dump-directory
+      runAfter:
+        - substitute-config-image-name-manual
+      workspaces:
+        - name: source
+          workspace: config-workspace
+
+    - name: commit-and-push-to-config-repo
+      taskRef:
+        name: git-cli
+      runAfter:
+        - substitute-config-image-name-manual
+      workspaces:
+        - name: source
+          workspace: config-workspace
+      params:
+        - name: GIT_USER_NAME
+          value: "tekton"
+        - name: GIT_USER_EMAIL
+          value: "tekton@eks.io"
+        - name: GIT_SCRIPT
+          value: |
+            git checkout -b "$(params.CONFIG_REVISION)"
+            git status
+            git add .
+            git commit -m "Update to $(params.IMAGE):$(params.SOURCE_REVISION)"
+            git push --set-upstream origin "$(params.CONFIG_REVISION)"
+
   finally:
     - name: report-pipeline-failed-to-gitlab
       when:
