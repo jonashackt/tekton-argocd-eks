@@ -107,56 +107,25 @@ spec:
         - name: revision
           value: "$(params.CONFIG_REVISION)"
 
-    - name: dump-contents
+    - name: replace-config-image-name
       taskRef:
-        name: dump-directory
+        name: replace-image-name-with-yq
       runAfter:
         - fetch-config-repository
-      workspaces:
-        - name: source
-          workspace: config-workspace
-
-#    - name: substitute-config-image-name
-#      taskRef:
-#        name: yq
-#      runAfter:
-#        - fetch-config-repository
-#      workspaces:
-#        - name: source
-#          workspace: config-workspace
-#      params:
-#        - name: files
-#          value:
-#          - "./deployment/deployment.yml"
-#        - name: expression
-#          value: '.spec.template.spec.containers[0].image = "\"$(params.IMAGE)\"@sha256:\"$(params.APP_IMAGE_DIGEST)\""'
-
-    - name: substitute-config-image-name-manual
-      taskRef:
-        name: substitute-with-yq
-      runAfter:
-        - dump-contents
       workspaces:
         - name: source
           workspace: config-workspace
       params:
         - name: IMAGE_NAME
           value: "$(params.IMAGE):$(params.SOURCE_REVISION)"
-
-    - name: dump-contents-substitution
-      taskRef:
-        name: dump-directory
-      runAfter:
-        - substitute-config-image-name-manual
-      workspaces:
-        - name: source
-          workspace: config-workspace
+        - name: FILE_PATH
+          value: "./deployment/deployment.yml"
 
     - name: commit-and-push-to-config-repo
       taskRef:
         name: git-cli
       runAfter:
-        - substitute-config-image-name-manual
+        - replace-config-image-name
       workspaces:
         - name: source
           workspace: config-workspace
@@ -171,7 +140,7 @@ spec:
             git status
             git add .
             git commit -m "Update to $(params.IMAGE):$(params.SOURCE_REVISION)"
-            git push --set-upstream origin "$(params.CONFIG_REVISION)"
+            git push --set-upstream origin "$(params.CONFIG_REVISION)" --force
 
   finally:
     - name: report-pipeline-failed-to-gitlab

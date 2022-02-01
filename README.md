@@ -2394,9 +2394,154 @@ There we see the new version of our app beeing deployed, while the old pods are 
 
 ## Integrate ArgoCD deployment into Tekton pipeline
 
-#### Getting the image sha
+#### The Git commit sha as the container image tag
 
-We can use the `APP_IMAGE_DIGEST` result variable from our buildpacks Tekton Task https://hub.tekton.dev/tekton/task/buildpacks
+We could use the `APP_IMAGE_DIGEST` result variable from our buildpacks Tekton Task https://hub.tekton.dev/tekton/task/buildpacks
+
+But this value is different to the original Git Commit SHA in GitLab, it seems to be generated somehow.
+
+So we should provide `"$(params.IMAGE):$(params.SOURCE_REVISION)"` as the `APP_IMAGE` parameter to our `buildpacks` task:
+
+```yaml
+      params:
+        - name: APP_IMAGE
+          value: "$(params.IMAGE):$(params.SOURCE_REVISION)"
+```
+
+The resulting image will for example have the full name and tag like this
+
+```shell
+registry.gitlab.com/jonashackt/microservice-api-spring-boot:3c4131f8566ef157244881bacc474543ef96755d
+```
+
+#### Fetching the configuration repository
+
+As already used to clone the application repository, we simply use the [git-clone Tekton task](https://hub.tekton.dev/tekton/task/git-clone) to fetch our application configuration repository:
+
+```yaml
+    - name: fetch-config-repository
+      taskRef:
+        name: git-clone
+      runAfter:
+        - buildpacks
+      workspaces:
+        - name: output
+          workspace: config-workspace
+      params:
+        - name: url
+          value: "$(params.CONFIG_URL)"
+        - name: revision
+          value: "$(params.CONFIG_REVISION)"
+```
+
+It uses `CONFIG_URL` and `CONFIG_REVISION` instead, which we both need to provide inside our [pipeline-run.yml](tekton-ci-config/pipeline-run.yml).
+
+
+#### Dump/list the contents of the fetched config repository
+
+In order to have insights what files are fetched by the git-clone task, we can implement our own custom Task to show us these files. Let's imagine a [dump-directory.yml](tekton-ci-config/dump-directory.yml):
+
+```yaml
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: dump-directory
+spec:
+  workspaces:
+    - name: source
+      description: A workspace that contains the file which need to be dumped.
+  steps:
+    - name: dump-directory
+      image: alpine
+      workingDir: $(workspaces.source.path)
+      command:
+        - /bin/sh
+      args:
+        - '-c'
+        - |
+          set -ex
+          find /workspace
+          cd /workspace/source/deployment
+          ls -la
+      resources: {}
+```
+
+Use the custom task after you applied it with `kubectl apply -f tekton-ci-config/dump-directory.yml` inside the Tekton pipeline like this:
+
+```yaml
+    - name: dump-contents
+      taskRef:
+        name: dump-directory
+      runAfter:
+        - fetch-config-repository
+      workspaces:
+        - name: source
+          workspace: config-workspace
+```
+
+This will show us all the files in the workspace and also prints a detailled output of what is inside the `deployment` directory:
+
+![dump-files-after-fetch](screenshots/dump-files-after-fetch.png)
+
+
+
+#### Replace the image name inside the deployment.yml in the config repositories 
+
+We now need to somehow substitute the `image` tag's name and tag to match our buildpack build application image. This was defined as `"$(params.IMAGE):$(params.SOURCE_REVISION)"`.
+
+There's a yq Tekton task we could use here https://hub.tekton.dev/tekton/task/yq
+
+But this doesn't work currently: https://stackoverflow.com/questions/70944069/tekton-yq-task-gives-safelyrenamefile-erro-failed-copying-from-tmp-temp-e
+
+It produces the following errors (without braking the pipeline, which is double sad):
+
+```shell
+16:50:43 safelyRenameFile [ERRO] Failed copying from /tmp/temp3555913516 to /workspace/source/deployment/deployment.yml
+16:50:43 safelyRenameFile [ERRO] open /workspace/source/deployment/deployment.yml: permission denied
+```
+
+As https://stackoverflow.com/a/70944070/4964553 suggests we could use an older version of the Task - or write our own, which is preferred here - since also the older task wasn't able to evaluate the expression with 2 parameters like `"$(params.IMAGE):$(params.SOURCE_REVISION)"`.
+
+So we created our own custom [replace-image-name-with-yq.yml](tekton-ci-config/replace-image-name-with-yq.yml):
+
+```yaml
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: replace-image-name-with-yq
+spec:
+  workspaces:
+    - name: source
+      description: A workspace that contains the file which need to be dumped.
+  params:
+    - name: IMAGE_NAME
+      description: The image name to substitute
+    - name: FILE_PATH
+      description: The file path relative to the workspace dir.
+    - name: YQ_VERSION
+      description: Version of https://github.com/mikefarah/yq
+      default: v4.2.0
+  steps:
+    - name: substitute-with-yq
+      image: alpine
+      workingDir: $(workspaces.source.path)
+      command:
+        - /bin/sh
+      args:
+        - '-c'
+        - |
+          set -ex
+          echo "--- Download yq & add to path"
+          wget https://github.com/mikefarah/yq/releases/download/$(params.YQ_VERSION)/yq_linux_amd64 -O /usr/bin/yq &&\
+              chmod +x /usr/bin/yq
+          echo "--- Run yq expression"
+          yq e ".spec.template.spec.containers[0].image = \"$(params.IMAGE_NAME)\"" -i $(params.FILE_PATH)
+          echo "--- Show file with replacement"
+          cat $(params.FILE_PATH)
+      resources: {}
+```
+
+The `cat $(params.FILE_PATH)` even shows the substitution in the Tekton output and/or Dashboard for convenience.
 
 
 #### Authenticating the git-cli task to push to GitLab
@@ -2429,19 +2574,66 @@ and substitute the `{{GITLAB_PUSH_TOKEN}}` using `sed` in our GitHub Actions pip
           sed "s#{{GITLAB_PUSH_TOKEN}}#${{ secrets.GITLAB_PUSH_TOKEN }}#g" tekton-ci-config/gitlab-push-secret.yml | kubectl apply -f -
 ```
 
+Also we need to add the new Secret to our `ServiceAccount` inside [buildpacks-service-account-gitlab.yml](tekton-ci-config/buildpacks-service-account-gitlab.yml):
+
+```yaml
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: buildpacks-service-account-gitlab
+secrets:
+  - name: gitlab-container-registry
+  - name: gitlab-push-secret
+```
+
 #### Use git-cli Task to push to config repository
 
-https://hub.tekton.dev/tekton/task/git-cli
+Finally we can use the `git-cli` Task from the Tekton Hub https://hub.tekton.dev/tekton/task/git-cli to add, commit and push the `deployment.yml` including it's replaced `image` name containing the original GitLab commit Hash as image tag to the configuration repository.
 
+```yaml
+    - name: commit-and-push-to-config-repo
+      taskRef:
+        name: git-cli
+      runAfter:
+        - replace-config-image-name
+      workspaces:
+        - name: source
+          workspace: config-workspace
+      params:
+        - name: GIT_USER_NAME
+          value: "tekton"
+        - name: GIT_USER_EMAIL
+          value: "tekton@eks.io"
+        - name: GIT_SCRIPT
+          value: |
+            git checkout -b "$(params.CONFIG_REVISION)"
+            git status
+            git add .
+            git commit -m "Update to $(params.IMAGE):$(params.SOURCE_REVISION)"
+            git push --set-upstream origin "$(params.CONFIG_REVISION)"
+```
 
+Mostly the `GIT_SCRIPT` is important (the `GIT_USER_NAME` and `GIT_USER_EMAIL` are neat to define) - here we need to checkout the correct branch or revision, which is defined in `$(params.CONFIG_REVISION)`.
 
+Then we add a `git status` to have some info printed into the Tekton logs. Also we `add` and then `commit` the `deployment.yml` with a useful comment. 
+
+Finally we push the change to our configuration repository. To not run into errors we also need to set the upstream branch/revision via `--set-upstream origin "$(params.CONFIG_REVISION)"`.
+
+Now if we created our Argo application already with:
 
 ```shell
 argocd app create microservice-api-spring-boot --repo https://gitlab.com/jonashackt/microservice-api-spring-boot-config.git --path deployment --dest-server https://kubernetes.default.svc --dest-namespace default --revision argocd --sync-policy auto
 ```
 
+we should see the application beeing deployed through Argo after a maximum of 3 minutes:
+
+![argo-cd-automatic-pull-bases-deployment](screenshots/argo-cd-automatic-pull-bases-deployment.png)
 
 
+#### Automatically (idempotently) creating the ArgoCD application with Tekton
+
+
+https://hub.tekton.dev/tekton/task/argocd-task-sync-and-wait
 
 
 
