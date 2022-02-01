@@ -136,7 +136,7 @@ jobs:
           kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/maven/0.2/maven.yaml
           kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/yq/0.3/yq.yaml
           kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/git-cli/0.3/git-cli.yaml
-          kubectl apply -f tekton-ci-config/substitute-with-yq.yml
+          kubectl apply -f tekton-ci-config/replace-image-name-with-yq.yml
 
       - name: Create GitLab Container Registry Secret & apply buildpacks PVC, ServiceAccount & Pipeline
         run: |

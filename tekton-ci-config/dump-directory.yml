@@ -19,6 +19,5 @@ spec:
           find /workspace
           cd /workspace/source/deployment
           ls -la
-          cat deployment.yml
       resources: {}
 

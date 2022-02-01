@@ -1,0 +1,35 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: replace-image-name-with-yq
+spec:
+  workspaces:
+    - name: source
+      description: A workspace that contains the file which need to be dumped.
+  params:
+    - name: IMAGE_NAME
+      description: The image name to substitute
+    - name: FILE_PATH
+      description: The file path relative to the workspace dir.
+    - name: YQ_VERSION
+      description: Version of https://github.com/mikefarah/yq
+      default: v4.2.0
+  steps:
+    - name: substitute-with-yq
+      image: alpine
+      workingDir: $(workspaces.source.path)
+      command:
+        - /bin/sh
+      args:
+        - '-c'
+        - |
+          set -ex
+          echo "--- Download yq & add to path"
+          wget https://github.com/mikefarah/yq/releases/download/$(params.YQ_VERSION)/yq_linux_amd64 -O /usr/bin/yq &&\
+              chmod +x /usr/bin/yq
+          echo "--- Run yq expression"
+          yq e ".spec.template.spec.containers[0].image = \"$(params.IMAGE_NAME)\"" -i $(params.FILE_PATH)
+          echo "--- Show file with replacement"
+          cat $(params.FILE_PATH)
+      resources: {}
+
