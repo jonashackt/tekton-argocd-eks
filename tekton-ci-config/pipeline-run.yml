@@ -19,6 +19,10 @@ spec:
       subPath: maven-repo-cache
       persistentVolumeClaim:
         claimName: buildpacks-source-pvc
+    - name: config-workspace
+      subPath: config
+      persistentVolumeClaim:
+        claimName: buildpacks-source-pvc
   params:
     - name: IMAGE
       value: registry.gitlab.com/jonashackt/microservice-api-spring-boot # This defines the name of output image
@@ -28,3 +32,7 @@ spec:
       value: jonashackt/microservice-api-spring-boot
     - name: SOURCE_REVISION
       value: 3c4131f8566ef157244881bacc474543ef96755d
+    - name: CONFIG_URL
+      value: https://gitlab.com/jonashackt/microservice-api-spring-boot-config
+    - name: CONFIG_REVISION
+      value: argocd

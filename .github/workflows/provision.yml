@@ -134,6 +134,9 @@ jobs:
           kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/master/task/buildpacks/0.3/buildpacks.yaml
           kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/gitlab-set-status/0.1/gitlab-set-status.yaml
           kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/maven/0.2/maven.yaml
+          kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/yq/0.3/yq.yaml
+          kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/git-cli/0.3/git-cli.yaml
+          kubectl apply -f tekton-ci-config/substitute-with-yq.yml
 
       - name: Create GitLab Container Registry Secret & apply buildpacks PVC, ServiceAccount & Pipeline
         run: |
@@ -145,7 +148,7 @@ jobs:
               --namespace default \
               --save-config --dry-run=client -o yaml | kubectl apply -f -
           echo "--- apply  buildpacks PVC, ServiceAccount & Pipeline"
-          kubectl apply -f tekton-ci-config/storage-class.yml -f tekton-ci-config/buildpacks-source-pvc.yml -f tekton-ci-config/gitlab-cr-service-account.yml -f tekton-ci-config/pipeline.yml
+          kubectl apply -f tekton-ci-config/storage-class.yml -f tekton-ci-config/buildpacks-source-pvc.yml -f tekton-ci-config/buildpacks-service-account-gitlab.yml -f tekton-ci-config/pipeline.yml
           echo "--- Insert Tekton dashboard url into generic-gitlab-set-status Pipeline config and apply it (see https://stackoverflow.com/a/70152914/4964553)"
           TEKTON_DASHBOARD_HOST="${{ steps.dashboard-expose.outputs.dashboard_host }}"
           sed "s#{{TEKTON_DASHBOARD_HOST}}#$TEKTON_DASHBOARD_HOST#g" tekton-ci-config/generic-gitlab-set-status.yml | kubectl apply -f -

@@ -2399,23 +2399,45 @@ There we see the new version of our app beeing deployed, while the old pods are 
 We can use the `APP_IMAGE_DIGEST` result variable from our buildpacks Tekton Task https://hub.tekton.dev/tekton/task/buildpacks
 
 
-#### Authenticating the git-cli task to push to GitHub
+#### Authenticating the git-cli task to push to GitLab
 
 Now we need to commit and push the new image tag to our config repository. Therefore we can use the Tekton git-cli task https://hub.tekton.dev/tekton/task/git-cli
 
 Maybe we can use the already existing GitHub PAT we created for the GitHub Container Registry access?!
 
-But we need to create a new `basic-auth` Secret in our GitHub Actions pipeline like this:
+But we need to create a new `basic-auth` Secret in our GitHub Actions pipeline. Therefore we create a [gitlab-push-secret.yml](tekton-ci-config/gitlab-push-secret.yml):
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: gitlab-push-secret
+  annotations:
+    tekton.dev/git-0: https://gitlab.com
+type: kubernetes.io/basic-auth
+stringData:
+  username: gitlab-push-token
+  password: {{GITLAB_PUSH_TOKEN}}
+```
+
+and substitute the `{{GITLAB_PUSH_TOKEN}}` using `sed` in our GitHub Actions pipeline:
 
 ```yaml
       - name: Create Secret for GitHub based configuration repository
         run: |
           echo "--- Create Secret for GitHub based configuration repository"
-          kubectl create secret basic-auth github-repo-access \
-              --username=${{ secrets.GHCR_USER }} \
-              --password=${{ secrets.GHCR_PASSWORD }} \
-              --namespace default \
-              --save-config --dry-run=client -o yaml | kubectl apply -f -
+          sed "s#{{GITLAB_PUSH_TOKEN}}#${{ secrets.GITLAB_PUSH_TOKEN }}#g" tekton-ci-config/gitlab-push-secret.yml | kubectl apply -f -
+```
+
+#### Use git-cli Task to push to config repository
+
+https://hub.tekton.dev/tekton/task/git-cli
+
+
+
+
+```shell
+argocd app create microservice-api-spring-boot --repo https://gitlab.com/jonashackt/microservice-api-spring-boot-config.git --path deployment --dest-server https://kubernetes.default.svc --dest-namespace default --revision argocd --sync-policy auto
 ```
 
 
