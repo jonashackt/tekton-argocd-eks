@@ -139,8 +139,7 @@ spec:
             git checkout -b "$(params.CONFIG_REVISION)"
             git status
             git add .
-            git commit -m "Update to $(params.IMAGE):$(params.SOURCE_REVISION)"
-            git push --set-upstream origin "$(params.CONFIG_REVISION)" --force
+            git commit -m "Update to $(params.IMAGE):$(params.SOURCE_REVISION)" && git push --set-upstream origin "$(params.CONFIG_REVISION)" --force
 
   finally:
     - name: report-pipeline-failed-to-gitlab
