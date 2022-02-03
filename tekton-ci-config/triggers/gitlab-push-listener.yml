@@ -59,6 +59,10 @@ spec:
                     subPath: maven-repo-cache
                     persistentVolumeClaim:
                       claimName: buildpacks-source-pvc
+                  - name: config-workspace
+                    subPath: config
+                    persistentVolumeClaim:
+                      claimName: buildpacks-source-pvc
                 params:
                   - name: IMAGE
                     value: "registry.gitlab.com/$(tt.params.gitrepository_pathonly)" #here our GitLab's registry url must be configured
