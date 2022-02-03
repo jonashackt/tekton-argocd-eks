@@ -198,6 +198,9 @@ jobs:
           echo "--- Apply Tekton EventListener Ingress"
           kubectl apply -f tekton-ci-config/triggers/tekton-eventlistener-ingress.yml
 
+          echo "--- Wait until Ingress url is present (see https://stackoverflow.com/a/70108500/4964553)"
+          until kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
+
           echo "--- Get Ingress host name"
           TEKTON_EVENTLISTENER_INGRESS_HOST="http://$(kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
           echo "Our EventListener's hostname is $TEKTON_EVENTLISTENER_INGRESS_HOST"

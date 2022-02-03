@@ -1285,17 +1285,25 @@ $TEKTON_EVENTLISTENER_INGRESS_HOST
 ```
 
 
-Finally we can implement all this inside our GitHub Action workflow [.github/workflows/provision.yml](.github/workflows/provision.yml):
+Finally we can implement all this inside our GitHub Action workflow [.github/workflows/provision.yml](.github/workflows/provision.yml).
+
+And as the creation of an Ingress object doesn't instantly provides an `hostname`, we should wait until Ingress url is present (see https://stackoverflow.com/a/70108500/4964553) using the `until` command like `until kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done`: 
 
 ```yaml
       - name: Expose Tekton Triggers EventListener via Ingress & testdrive Trigger
         run: |
           echo "--- Deploy Nginx Ingress Controller"
           kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.34.1/deploy/static/provider/cloud/deploy.yaml
+          
           echo "--- Apply Tekton EventListener Ingress"
           kubectl apply -f tekton-ci-config/triggers/tekton-eventlistener-ingress.yml
+
+          echo "--- Wait until Ingress url is present (see https://stackoverflow.com/a/70108500/4964553)"
+          until kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
+          
           echo "--- Get Ingress host name"
           TEKTON_EVENTLISTENER_INGRESS_HOST="http://$(kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+          
           echo "Our EventListener's hostname is $TEKTON_EVENTLISTENER_INGRESS_HOST"
           echo "--- Testdrive Trigger via curl"
           curl -v \
