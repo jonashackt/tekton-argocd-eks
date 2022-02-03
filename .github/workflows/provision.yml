@@ -50,10 +50,14 @@ jobs:
         run: |
           pulumi stack select dev
           pulumi preview
+
           echo "lets use --suppress-outputs here in order to prevent Pulumi from logging the kubeconfig into public GitHub Action logs"
           pulumi up --yes --suppress-outputs
+
           echo "Create ~/.kube dir only, if not already existent (see https://stackoverflow.com/a/793867/4964553)"
           mkdir -p ~/.kube
+
+          echo "Create kubeconfig and supply it for depending Action jobs"
           pulumi stack output kubeconfig > ~/.kube/config
           echo "::set-output name=kubeconfig::$(pulumi stack output kubeconfig)"
           echo "::set-output name=eks_url::$(pulumi stack output eksUrl)/api/hello"
@@ -104,8 +108,10 @@ jobs:
         run: |
           echo "--- Expose Tekton Dashboard via K8s Service"
           kubectl apply -f tekton-dashboard-service.yml -n tekton-pipelines
+
           echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
           until kubectl get service/tekton-dashboard-external-svc-manual -n tekton-pipelines --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
+
           echo "--- Create GitHub environment var"
           DASHBOARD_HOST="http://$(kubectl get service tekton-dashboard-external-svc-manual -n tekton-pipelines --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
           echo "The Tekton dashboard is accessible at $DASHBOARD_HOST - creating GitHub Environment"
@@ -120,11 +126,14 @@ jobs:
         run: |
           echo "--- Create Task"
           kubectl apply -f tekton-ci-config/task-hello-world.yaml
+
           echo "--- Start TaskRun"
           tkn task start hello --dry-run > taskRun-hello.yaml
           TASK_RUN_NAME=$(kubectl create -f taskRun-hello.yaml -o json | jq -r '.metadata.name')
+
           echo "--- Wait for TaskRun to succeed"
           kubectl wait --for=condition=SUCCEEDED=True --timeout=60s taskruns.tekton.dev/$TASK_RUN_NAME
+
           echo "--- Show TaskRun logs"
           tkn taskrun logs $TASK_RUN_NAME
 
@@ -138,7 +147,7 @@ jobs:
           kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/git-cli/0.3/git-cli.yaml
           kubectl apply -f tekton-ci-config/replace-image-name-with-yq.yml
 
-      - name: Create GitLab Container Registry Secret & apply buildpacks PVC, ServiceAccount & Pipeline
+      - name: Create Secrets for GitLab Container Registry & Repository access & apply buildpacks PVC, ServiceAccount & Pipeline
         run: |
           echo "--- Create Secret to access GitLab Container Registry"
           kubectl create secret docker-registry gitlab-container-registry \
@@ -147,9 +156,14 @@ jobs:
               --docker-password=${{ secrets.GITLAB_CR_PASSWORD }} \
               --namespace default \
               --save-config --dry-run=client -o yaml | kubectl apply -f -
+
+          echo "--- Create Secret for GitHub based configuration repository"
+          sed "s#{{GITLAB_PUSH_TOKEN}}#${{ secrets.GITLAB_PUSH_TOKEN }}#g" tekton-ci-config/gitlab-push-secret.yml | kubectl apply -f -
+
           echo "--- apply  buildpacks PVC, ServiceAccount & Pipeline"
           kubectl apply -f tekton-ci-config/storage-class.yml -f tekton-ci-config/buildpacks-source-pvc.yml -f tekton-ci-config/buildpacks-service-account-gitlab.yml -f tekton-ci-config/pipeline.yml
-          echo "--- Insert Tekton dashboard url into generic-gitlab-set-status Pipeline config and apply it (see https://stackoverflow.com/a/70152914/4964553)"
+
+          echo "--- Insert Tekton dashboard url into generic-gitlab-set-status Pipeline config and apply it (see https://stackoverflow.com/a/70890805/4964553)"
           TEKTON_DASHBOARD_HOST="${{ steps.dashboard-expose.outputs.dashboard_host }}"
           sed "s#{{TEKTON_DASHBOARD_HOST}}#$TEKTON_DASHBOARD_HOST#g" tekton-ci-config/generic-gitlab-set-status.yml | kubectl apply -f -
 
@@ -182,11 +196,14 @@ jobs:
         run: |
           echo "--- Deploy Nginx Ingress Controller"
           kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.34.1/deploy/static/provider/cloud/deploy.yaml
+
           echo "--- Apply Tekton EventListener Ingress"
           kubectl apply -f tekton-ci-config/triggers/tekton-eventlistener-ingress.yml
+
           echo "--- Get Ingress host name"
           TEKTON_EVENTLISTENER_INGRESS_HOST="http://$(kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
           echo "Our EventListener's hostname is $TEKTON_EVENTLISTENER_INGRESS_HOST"
+
           echo "--- Testdrive Trigger via curl"
           curl -v \
           -H 'X-GitLab-Token: 1234567' \
@@ -194,11 +211,6 @@ jobs:
           -H 'Content-Type: application/json' \
           --data-binary "@tekton-ci-config/triggers/gitlab-push-test-event.json" \
           $TEKTON_EVENTLISTENER_INGRESS_HOST
-
-      - name: Create Secret for GitHub based configuration repository
-        run: |
-          echo "--- Create Secret for GitHub based configuration repository"
-          sed "s#{{GITLAB_PUSH_TOKEN}}#${{ secrets.GITLAB_PUSH_TOKEN }}#g" tekton-ci-config/gitlab-push-secret.yml | kubectl apply -f -
 
   install-and-run-argocd-on-eks:
     runs-on: ubuntu-latest
@@ -231,8 +243,10 @@ jobs:
         run: |
           echo "--- Expose ArgoCD Dashboard via K8s Service"
           kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+
           echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
           until kubectl get service/argocd-server -n argocd --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
+
           echo "--- Create GitHub environment var"
           DASHBOARD_HOST="http://$(kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
           echo "The ArgoCD dashboard is accessible at $DASHBOARD_HOST - creating GitHub Environment"
