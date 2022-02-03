@@ -68,3 +68,7 @@ spec:
                     value: $(tt.params.gitrepository_pathonly)
                   - name: SOURCE_REVISION
                     value: $(tt.params.gitrevision)
+                  - name: CONFIG_URL
+                    value: "$(tt.params.gitrepositoryurl)-config"
+                  - name: CONFIG_REVISION
+                    value: argocd
