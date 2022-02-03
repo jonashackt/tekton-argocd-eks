@@ -149,6 +149,12 @@ jobs:
 
       - name: Create Secrets for GitLab Container Registry & Repository access & apply buildpacks PVC, ServiceAccount & Pipeline
         run: |
+          echo "--- Create gitlab.com api token secret for Tekton Pipeline status reports"
+          kubectl create secret generic gitlab-api-secret \
+              --from-literal=token=${{ secrets.GITLAB_API_TOKEN }} \
+              --namespace default \
+              --save-config --dry-run=client -o yaml | kubectl apply -f -
+
           echo "--- Create Secret to access GitLab Container Registry"
           kubectl create secret docker-registry gitlab-container-registry \
               --docker-server=registry.gitlab.com \
@@ -157,10 +163,10 @@ jobs:
               --namespace default \
               --save-config --dry-run=client -o yaml | kubectl apply -f -
 
-          echo "--- Create Secret for GitHub based configuration repository"
+          echo "--- Create Secret for GitLab based configuration repository"
           sed "s#{{GITLAB_PUSH_TOKEN}}#${{ secrets.GITLAB_PUSH_TOKEN }}#g" tekton-ci-config/gitlab-push-secret.yml | kubectl apply -f -
 
-          echo "--- apply  buildpacks PVC, ServiceAccount & Pipeline"
+          echo "--- apply buildpacks PVC, ServiceAccount & Pipeline"
           kubectl apply -f tekton-ci-config/storage-class.yml -f tekton-ci-config/buildpacks-source-pvc.yml -f tekton-ci-config/buildpacks-service-account-gitlab.yml -f tekton-ci-config/pipeline.yml
 
           echo "--- Insert Tekton dashboard url into generic-gitlab-set-status Pipeline config and apply it (see https://stackoverflow.com/a/70890805/4964553)"
@@ -183,14 +189,6 @@ jobs:
           kubectl apply -f tekton-ci-config/triggers/serviceaccount-rb-crb.yml
           kubectl apply -f tekton-ci-config/triggers/tekton-trigger-secret.yml
           kubectl apply -f tekton-ci-config/triggers/gitlab-push-listener.yml
-
-      - name: Create gitlab.com api token secret for Tekton Pipeline status reports
-        run: |
-          echo "--- Create Secret to access gitlab.com api"
-          kubectl create secret generic gitlab-api-secret \
-              --from-literal=token=${{ secrets.GITLAB_API_TOKEN }} \
-              --namespace default \
-              --save-config --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Expose Tekton Triggers EventListener via Ingress & testdrive Trigger
         run: |
