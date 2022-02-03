@@ -148,6 +148,27 @@ Luckily this answer brought me into the right direction: https://stackoverflow.c
 I needed to define the `AWS_DEFAULT_REGION: 'eu-central-1'` also solely for `kubectl` in GitHub Actions. With this the error was gone, since the other two variables for `aws-cli` (which is already installed in the GitHub Actions virtual environment) were defined properly. 
 
 
+### EKS with more power
+
+Per default Pulumi creates an EKS cluster with only 2 worker nodes - doing all this fancy Tekton & Argo stuff we should upgrade to at least 3 or 4 worker nodes. 
+
+Therefore we can [tell Pulumi to use more using the `desiredCapacity` configuration](https://www.pulumi.com/registry/packages/eks/api-docs/cluster/#desiredcapacity_nodejs):
+
+```yaml
+// Create an EKS cluster with the default configuration.
+  const cluster = new eks.Cluster("eks-for-tekton", {
+      desiredCapacity: 3,
+      minSize: 3,
+      maxSize: 4,
+});
+```
+
+In order to prevent errors like `error waiting for CloudFormation Stack update: failed to update CloudFormation stack (UPDATE_ROLLBACK_COMPLETE): ["Desired capacity:3 must be between the specified min size:1 and max size:2` we should also update the `minSize`, `maxSize` parameters.
+
+See also the examples - e.g. https://github.com/pulumi/pulumi-eks/blob/master/examples/cluster/index.ts
+
+
+
 
 # Install Tekton on EKS
 
