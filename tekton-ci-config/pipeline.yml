@@ -141,6 +141,23 @@ spec:
             git add .
             git commit -m "Update to $(params.IMAGE):$(params.SOURCE_REVISION)" && git push --set-upstream origin "$(params.CONFIG_REVISION)" --force
 
+    - name: argo-create-app-sync-wait
+      taskRef:
+        name: argocd-task-create-sync-and-wait
+      runAfter:
+        - commit-and-push-to-config-repo
+      params:
+        - name: application-name
+          value: "$(params.REPO_PATH_ONLY)"
+        - name: config-repository
+          value: "$(params.CONFIG_URL)"
+        - name: config-repository-path
+          value: deployment
+        - name: revision
+          value: "$(params.CONFIG_REVISION)"
+        - name: destination-namespace
+          value: default
+
   finally:
     - name: report-pipeline-failed-to-gitlab
       when:

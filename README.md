@@ -2659,10 +2659,136 @@ we should see the application beeing deployed through Argo after a maximum of 3 
 ![argo-cd-automatic-pull-bases-deployment](screenshots/argo-cd-automatic-pull-bases-deployment.png)
 
 
+
+
+
 #### Automatically (idempotently) creating the ArgoCD application with Tekton
 
 
 https://hub.tekton.dev/tekton/task/argocd-task-sync-and-wait
+
+Install Hub Task
+
+
+```yaml
+# Add user tekton to ArgoCD (see https://argo-cd.readthedocs.io/en/stable/operator-manual/user-management/#create-new-user)
+kubectl patch configmap argocd-cm -n argocd -p '{"data": {"accounts.tekton": "apiKey"}}'
+
+# Generate Token
+argocd account generate-token --account tekton
+```
+
+
+###### Create ConfigMap
+
+https://hub.tekton.dev/tekton/task/argocd-task-sync-and-wait
+
+```shell
+# Get ArgoCD server hostname
+kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+
+kubectl create configmap argocd-env-configmap --from-literal="ARGOCD_SERVER=$(kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+```
+
+
+###### Create Secret
+
+```yaml
+echo "--- Create ArgoCD token secret for Tekton Pipeline"
+kubectl create secret generic argocd-env-secret \
+  --from-literal=ARGOCD_AUTH_TOKEN=INSERT_TOKEN_HERE \
+  --namespace default \
+  --save-config --dry-run=client -o yaml | kubectl apply -f -
+```
+
+
+###### Create App with Task
+
+The Hub task https://hub.tekton.dev/tekton/task/argocd-task-sync-and-wait HAZ NO APP CREATE!
+
+So let's create our own simple Task [argocd-task-app-create.yml](tekton-ci-config/argocd-task-app-create.yml) derived from https://hub.tekton.dev/tekton/task/argocd-task-sync-and-wait and https://github.com/tektoncd/catalog/pull/903/files (since the `v0.1` uses the old ArgoCD version `1.x`):
+
+```yaml
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: argocd-task-create-sync-and-wait
+  labels:
+    app.kubernetes.io/version: "0.2"
+  annotations:
+    tekton.dev/pipelines.minVersion: "0.12.1"
+    tekton.dev/categories: Deployment
+    tekton.dev/tags: deploy
+    tekton.dev/displayName: "argocd"
+    tekton.dev/platforms: "linux/amd64"
+    tekton.dev/deprecated: "true"
+spec:
+  description: >-
+    This task creates and syncs (deploys) an Argo CD application and waits for it to be healthy.
+    (derived from https://hub.tekton.dev/tekton/task/argocd-task-sync-and-wait, which isn't able to create an app)
+
+    To do so, it requires the address of the Argo CD server and some form of
+    authentication either a username/password or an authentication token.
+
+  params:
+    - name: application-name
+      description: name of the application to sync
+    - name: config-repository
+      description: the applications config repository
+    - name: config-repository-path
+      description: the path to the K8s deployment and service files in the applications config repository
+    - name: revision
+      description: the revision to sync to
+      default: HEAD
+    - name: destination-namespace
+      description: the namespace to deploy the application to
+    - name: flags
+      default: --
+    - name: argocd-version
+      default: v2.2.2
+
+  steps:
+    - name: login-create-sync
+      image: quay.io/argoproj/argocd:$(params.argocd-version)
+      script: |
+        if [ -z "$ARGOCD_AUTH_TOKEN" ]; then
+          yes | argocd login "$ARGOCD_SERVER" --username="$ARGOCD_USERNAME" --password="$ARGOCD_PASSWORD";
+        fi
+        argocd app create microservice-api-spring-boot --repo https://gitlab.com/jonashackt/microservice-api-spring-boot-config.git --path deployment --dest-server https://kubernetes.default.svc --dest-namespace default --revision argocd --sync-policy auto
+        argocd app create "$(params.application-name)" --repo "$(params.config-repository)" --path "$(params.config-repository-path)" --dest-server https://kubernetes.default.svc --dest-namespace "$(params.destination-namespace)" --revision "$(params.revision)" --sync-policy auto"
+        argocd app sync "$(params.application-name)" --revision "$(params.revision)" "$(params.flags)"
+        argocd app wait "$(params.application-name)" --health "$(params.flags)"
+      envFrom:
+        - configMapRef:
+            name: argocd-env-configmap  # used for server address
+        - secretRef:
+            name: argocd-env-secret  # used for authentication (username/password or auth token)
+```
+
+And apply it with
+
+```shell
+kubectl apply -f tekton-ci-config/argocd-task-app-create.yml
+```
+
+```shell
+argocd app create microservice-api-spring-boot --repo https://gitlab.com/jonashackt/microservice-api-spring-boot-config.git --path deployment --dest-server https://kubernetes.default.svc --dest-namespace default --revision argocd --sync-policy auto
+```
+
+####### Omit error Failed to establish connection to aws-lb-123.com:443: x509: certificate is valid for localhost, argocd-server, not aws-lb-123.com
+
+```
+time="2022-02-04T08:02:13Z" level=fatal msg="Failed to establish connection to a5f715808162c48c1af54069ba37db0e-1371850981.eu-central-1.elb.amazonaws.com:443: x509: certificate is valid for localhost, argocd-server, argocd-server.argocd, argocd-server.argocd.svc, argocd-server.argocd.svc.cluster.local, not a5f715808162c48c1af54069ba37db0e-1371850981.eu-central-1.elb.amazonaws.com"
+```
+
+Can't we simply access the ArgoCD server from within our cluster - since it's all deployed on the same K8s cluster?!
+
+
+```shell
+kubectl create configmap argocd-env-configmap --from-literal="ARGOCD_SERVER=argocd-server"
+```
+
+
 
 
 
