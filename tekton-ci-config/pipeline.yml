@@ -13,6 +13,9 @@ spec:
     - name: REPO_PATH_ONLY
       type: string
       description: GitLab group & repo name only (e.g. jonashackt/microservice-api-spring-boot)
+    - name: PROJECT_NAME
+      type: string
+      description: GitLab repo name only (e.g. microservice-api-spring-boot)
     - name: SOURCE_REVISION
       description: The branch, tag or SHA to checkout.
       default: ""
@@ -148,15 +151,17 @@ spec:
         - commit-and-push-to-config-repo
       params:
         - name: application-name
-          value: "$(params.REPO_PATH_ONLY)"
+          value: "$(params.PROJECT_NAME)"
         - name: config-repository
           value: "$(params.CONFIG_URL)"
-        - name: config-repository-path
+        - name: config-path
           value: deployment
-        - name: revision
+        - name: config-revision
           value: "$(params.CONFIG_REVISION)"
         - name: destination-namespace
           value: default
+        - name: argo-appproject
+          value: apps2deploy
 
   finally:
     - name: report-pipeline-failed-to-gitlab
