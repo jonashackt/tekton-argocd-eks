@@ -26,6 +26,8 @@ spec:
           value: $(body.repository.git_http_url)
         - name: gitrepository_pathonly
           value: $(body.project.path_with_namespace)
+        - name: project_name
+          value: $(body.project.name)
       template:
         spec:
           params:
@@ -70,6 +72,8 @@ spec:
                     value: $(tt.params.gitrepositoryurl)
                   - name: REPO_PATH_ONLY
                     value: $(tt.params.gitrepository_pathonly)
+                  - name: PROJECT_NAME
+                    value: $(tt.params.project_name)
                   - name: SOURCE_REVISION
                     value: $(tt.params.gitrevision)
                   - name: CONFIG_URL
