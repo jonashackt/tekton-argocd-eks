@@ -24,15 +24,18 @@ spec:
       description: name of the application to sync
     - name: config-repository
       description: the applications config repository
-    - name: config-repository-path
+    - name: config-path
       description: the path to the K8s deployment and service files in the applications config repository
-    - name: revision
-      description: the revision to sync to
+    - name: config-revision
+      description: the revision of the config repository to sync to
       default: HEAD
     - name: destination-namespace
       description: the namespace to deploy the application to
+    - name: argo-appproject
+      description: the AppProject which contains the role with permissions to create and sync the application
     - name: flags
-      default: --
+      description: Any flags to add to the command. Defaulting to --insecure here because of no proper certificate setup here
+      default: "--insecure"
     - name: argocd-version
       default: v2.2.2
 
@@ -43,9 +46,8 @@ spec:
         if [ -z "$ARGOCD_AUTH_TOKEN" ]; then
           yes | argocd login "$ARGOCD_SERVER" --username="$ARGOCD_USERNAME" --password="$ARGOCD_PASSWORD";
         fi
-        argocd app create microservice-api-spring-boot --repo https://gitlab.com/jonashackt/microservice-api-spring-boot-config.git --path deployment --dest-server https://kubernetes.default.svc --dest-namespace default --revision argocd --sync-policy auto
-        argocd app create "$(params.application-name)" --repo "$(params.config-repository)" --path "$(params.config-repository-path)" --dest-server https://kubernetes.default.svc --dest-namespace "$(params.destination-namespace)" --revision "$(params.revision)" --sync-policy auto"
-        argocd app sync "$(params.application-name)" --revision "$(params.revision)" "$(params.flags)"
+        argocd app create "$(params.application-name)" --repo "$(params.config-repository)" --path "$(params.config-path)" --project "$(params.argo-appproject)" --dest-server https://kubernetes.default.svc --dest-namespace "$(params.destination-namespace)" --revision "$(params.config-revision)" --sync-policy auto "$(params.flags)"
+        argocd app sync "$(params.application-name)" --revision "$(params.config-revision)" "$(params.flags)"
         argocd app wait "$(params.application-name)" --health "$(params.flags)"
       envFrom:
         - configMapRef:
