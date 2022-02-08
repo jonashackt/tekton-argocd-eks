@@ -2776,6 +2776,8 @@ Now the argocd command should reach the ArgoCD server as expected.
 
 #### Add ArgoCD AppProject with needed role and create, sync, wait permissions
 
+See also https://rtfm.co.ua/en/argocd-users-access-and-rbac/
+
 Tackling the error:
 
 ```
@@ -2837,8 +2839,6 @@ argocd proj role add-policy apps2deploy create-sync --action update --permission
 argocd proj role add-policy apps2deploy create-sync --action delete --permission allow --object "*"
 ```
 
-__TODO:__ Since all those commands are quite bloated, we should better go with `AppProject` yaml manifest like https://argo-cd.readthedocs.io/en/stable/user-guide/projects/#configuring-rbac-with-projects and https://github.com/argoproj/argo-cd/issues/5382
-
 Have a look on the role policies with `argocd proj role get apps2deploy create-sync`, which should look somehow like this:
 
 ```shell
@@ -2858,6 +2858,9 @@ ID          ISSUED-AT                                EXPIRES-AT
 ```
 
 
+
+#### Introduce `PROJECT_NAME` parameter and create ArgoCD app from Tekton finally
+
 Now we finally need to add our application to the `AppProject` we created.
 
 We add it to our [argocd-task-app-create.yml](tekton-ci-config/argocd-task-app-create.yml) `argocd app create` command as ` --project "$(params.argo-appproject)"` with a new parameter `argo-appproject`. 
@@ -2869,6 +2872,106 @@ So let's introduce `PROJECT_NAME` to our [pipeline.yml](tekton-ci-config/pipelin
 In the end our pipeline should be able to create our app and sync/wait for it to be deployed:
 
 ![tekton-argocd-successful-deployment](screenshots/tekton-argocd-successful-deployment.png)
+
+
+
+
+
+
+## GitHub Actions prepare ArgoCD deployment 
+
+So we're doing CI/CD for our CI/CD process here, right?! So let's also automate all the steps inside our [provision.yml](.github/workflows/provision.yml).
+
+#### Install the argocd-task-create-sync-and-wait task
+
+First we need to install our custom task:
+
+```yaml
+          echo "--- Install the argocd-task-create-sync-and-wait task"
+          kubectl apply -f tekton-ci-config/argocd-task-app-create.yml
+```
+
+
+#### argocd login inside GitHub Actions (no human interaction)
+
+First we need to do the `argocd login` command without human interaction (see https://stackoverflow.com/a/71030112/4964553):
+
+We already know how to extract the password for argo with `kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo` (we should not change it here inside our CI/CD process in order to be able to use it for ArgoCD configuration).
+
+We also know how to obtain the ArgoCD server's hostname with `kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}'`.
+
+Now as the `argocd login` command has the parameters `--username` and `--password`, we can craft our login command like this:
+
+```shell
+argocd login $(kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}') --username admin --password $(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo) --insecure
+```
+
+Mind the `--insecure` to prevent the argo CLI from asking things like `WARNING: server certificate had error: x509: certificate is valid for localhost, argocd-server, argocd-server.argocd, argocd-server.argocd.svc, argocd-server.argocd.svc.cluster.local, not a5f715808162c48c1af54069ba37db0e-1371850981.eu-central-1.elb.amazonaws.com. Proceed insecurely (y/n)?`.
+
+
+#### Create ConfigMap to point argocd CLI to our argocd-server
+
+We need to create the `ConfigMap` idempotently - so a simple `kubectl create configmap` would crash in GitHub Actions the second time it runs. So let's redesign it to use `kubectl apply -f -` style like that:
+
+```yaml
+          echo "--- Create ConfigMap to point argocd CLI to our argocd-server"
+          kubectl create configmap argocd-env-configmap \
+              --from-literal="ARGOCD_SERVER=$(kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')" \
+              --namespace default \
+              --save-config --dry-run=client -o yaml | kubectl apply -f -
+```
+
+
+#### Create AppProject apps2deploy using manifest style incl. role create-sync with needed permissions
+
+Since all those commands are quite bloated, we should better go with `AppProject` yaml manifest like https://argo-cd.readthedocs.io/en/stable/user-guide/projects/#configuring-rbac-with-projects and https://github.com/argoproj/argo-cd/issues/5382
+
+So let's create a manifest file like [argocd-appproject-apps2deploy.yml](tekton-ci-config/argocd-appproject-apps2deploy.yml):
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: apps2deploy
+  namespace: argocd
+spec:
+  destinations:
+    - namespace: default
+      server: https://kubernetes.default.svc
+  sourceRepos:
+    - '*'
+  roles:
+    - description: project role to create and sync apps from a CI/CD pipeline
+      name: create-sync
+      policies:
+      - p, proj:apps2deploy:create-sync, applications, get, apps2deploy/*, allow
+      - p, proj:apps2deploy:create-sync, applications, create, apps2deploy/*, allow
+      - p, proj:apps2deploy:create-sync, applications, update, apps2deploy/*, allow
+      - p, proj:apps2deploy:create-sync, applications, delete, apps2deploy/*, allow
+      - p, proj:apps2deploy:create-sync, applications, sync, apps2deploy/*, allow
+```
+
+Let's apply it with
+
+```shell
+kubectl apply -f tekton-ci-config/argocd-appproject-apps2deploy.yml
+```
+
+We also check the new role has been created with `argocd proj role list apps2deploy`.
+
+
+#### Create Secret for argocd CLI authentication to the argocd-server using AppProject role token
+
+Now we need to create a token for the AppProject role `create-sync` - but not with the bloated output! We only need the token. Luckily there's a parameter `-t, --token-only          Output token only - for use in scripts.`. So `argocd proj role create-token apps2deploy create-sync --token-only` creates only the token.
+
+We can directly combine the token generation with the Secret creation like this:
+
+```yaml
+kubectl create secret generic argocd-env-secret \
+  --from-literal=ARGOCD_AUTH_TOKEN=$(argocd proj role create-token apps2deploy create-sync --token-only) \
+  --namespace default \
+  --save-config --dry-run=client -o yaml | kubectl apply -f -
+```
 
 
 

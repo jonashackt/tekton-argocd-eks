@@ -262,3 +262,28 @@ jobs:
               --docker-password=${{ secrets.GHCR_PASSWORD }} \
               --namespace default \
               --save-config --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Install & configure argocd-task-create-sync-and-wait
+        run: |
+          echo "--- Install the argocd-task-create-sync-and-wait task"
+          kubectl apply -f tekton-ci-config/argocd-task-app-create.yml
+
+          echo "--- Login argocd CLI"
+          argocd login $(kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}') --username admin --password $(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo) --insecure
+
+          echo "--- Create ConfigMap to point argocd CLI to our argocd-server"
+          kubectl create configmap argocd-env-configmap \
+              --from-literal="ARGOCD_SERVER=$(kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')" \
+              --namespace default \
+              --save-config --dry-run=client -o yaml | kubectl apply -f -
+
+          echo "--- Create AppProject apps2deploy using manifest style incl. role create-sync with needed permissions"
+          kubectl apply -f tekton-ci-config/argocd-appproject-apps2deploy.yml
+          argocd proj role list apps2deploy
+
+          echo "--- Create Secret for argocd CLI authentication to the argocd-server using AppProject role token"
+          kubectl create secret generic argocd-env-secret \
+            --from-literal=ARGOCD_AUTH_TOKEN=$(argocd proj role create-token apps2deploy create-sync --token-only) \
+            --namespace default \
+            --save-config --dry-run=client -o yaml | kubectl apply -f -
+
