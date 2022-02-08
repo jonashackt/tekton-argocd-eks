@@ -34,6 +34,7 @@ spec:
             - name: gitrevision
             - name: gitrepositoryurl
             - name: gitrepository_pathonly
+            - name: project_name
             - name: message
               description: The message to print
               default: This is the default message
