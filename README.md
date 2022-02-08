@@ -2882,9 +2882,16 @@ In the end our pipeline should be able to create our app and sync/wait for it to
 
 So we're doing CI/CD for our CI/CD process here, right?! So let's also automate all the steps inside our [provision.yml](.github/workflows/provision.yml).
 
+#### First we need to install ArgoCD CLI
+
+```yaml
+      - name: Install ArgoCD CLI
+        run: brew install argocd
+```
+
 #### Install the argocd-task-create-sync-and-wait task
 
-First we need to install our custom task:
+Then we need to install our custom task:
 
 ```yaml
           echo "--- Install the argocd-task-create-sync-and-wait task"
@@ -2894,7 +2901,7 @@ First we need to install our custom task:
 
 #### argocd login inside GitHub Actions (no human interaction)
 
-First we need to do the `argocd login` command without human interaction (see https://stackoverflow.com/a/71030112/4964553):
+Let's do the `argocd login` command without human interaction (see https://stackoverflow.com/a/71030112/4964553):
 
 We already know how to extract the password for argo with `kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo` (we should not change it here inside our CI/CD process in order to be able to use it for ArgoCD configuration).
 

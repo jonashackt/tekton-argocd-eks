@@ -263,6 +263,9 @@ jobs:
               --namespace default \
               --save-config --dry-run=client -o yaml | kubectl apply -f -
 
+      - name: Install ArgoCD CLI
+        run: brew install argocd
+
       - name: Install & configure argocd-task-create-sync-and-wait
         run: |
           echo "--- Install the argocd-task-create-sync-and-wait task"
