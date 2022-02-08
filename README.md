@@ -2867,7 +2867,16 @@ We add it to our [argocd-task-app-create.yml](tekton-ci-config/argocd-task-app-c
 
 Finally we need to introduce a new parameter containing only the project name, since the `REPO_PATH_ONLY` parameter containing e.g. `jonashackt/microservice-api-spring-boot` produces an error like `rpc error: code = Unknown desc = invalid resource name \"jonashackt/microservice-api-spring-boot\": [may not contain '/']`.
 
-So let's introduce `PROJECT_NAME` to our [pipeline.yml](tekton-ci-config/pipeline.yml), which we can also retrieve easily in our EventListener / Tekton Trigger solution implemented in [gitlab-push-listener.yml](tekton-ci-config/triggers/gitlab-push-listener.yml). There we can use `$(body.project.name)` inside the TriggerBinding to retrieve the project name from the payload (see [gitlab-push-test-event.json](tekton-ci-config/triggers/gitlab-push-test-event.json)) and use it later in the parameter definition.
+So let's introduce `PROJECT_NAME` to our [pipeline.yml](tekton-ci-config/pipeline.yml), which we can also retrieve easily in our EventListener / Tekton Trigger solution implemented in [gitlab-push-listener.yml](tekton-ci-config/triggers/gitlab-push-listener.yml).
+
+There we can use `$(body.project.name)` inside the TriggerBinding to retrieve the project name from the payload (see [gitlab-push-test-event.json](tekton-ci-config/triggers/gitlab-push-test-event.json)) and use it later in the parameter definition.
+
+Mind the spec params definition of `project_name` also to not run into `'$(tt.params.project_name)' must be declared in spec.params` errors. Now the parameter can finally be used as:
+
+```yaml
+                  - name: PROJECT_NAME
+                    value: $(tt.params.project_name)
+```
 
 In the end our pipeline should be able to create our app and sync/wait for it to be deployed:
 
