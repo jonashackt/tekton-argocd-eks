@@ -282,7 +282,8 @@ jobs:
 
           echo "--- Create AppProject apps2deploy using manifest style incl. role create-sync with needed permissions"
           kubectl apply -f tekton-ci-config/argocd-appproject-apps2deploy.yml
-          argocd proj role list apps2deploy
+          echo "--- Show AppProject details incl. role permissions"
+          kubectl get appproj -n argocd apps2deploy -o yaml
 
           echo "--- Create Secret for argocd CLI authentication to the argocd-server using AppProject role token"
           kubectl create secret generic argocd-env-secret \
