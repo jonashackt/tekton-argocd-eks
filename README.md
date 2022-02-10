@@ -2776,7 +2776,7 @@ Now the argocd command should reach the ArgoCD server as expected.
 
 #### Add ArgoCD AppProject with needed role and create, sync, wait permissions
 
-See also https://rtfm.co.ua/en/argocd-users-access-and-rbac/
+See https://stackoverflow.com/questions/71052421/argocd-app-create-in-ci-pipeline-github-actions-tekton-throws-permissio/71052422#71052422
 
 Tackling the error:
 
