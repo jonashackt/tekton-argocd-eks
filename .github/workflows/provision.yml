@@ -66,9 +66,91 @@ jobs:
       - name: Try to connect to our EKS cluster using kubectl
         run: kubectl get nodes
 
-  install-and-run-tekton-on-eks:
+  install-and-run-argocd-on-eks:
     runs-on: ubuntu-latest
     needs: provision-eks-with-pulumi
+    environment:
+      name: argocd-dashboard
+      url: ${{ steps.dashboard-expose.outputs.dashboard_host }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@master
+      # We must use single quotes (!!!) here to access the kubeconfig like this:
+      # echo '${{ needs.provision-eks-with-pulumi.outputs.kubeconfig }}' > ~/.kube/config
+      # Otherwise we'll run into errors like (see https://stackoverflow.com/a/15930393/4964553):
+      # "error: error loading config file "/home/runner/.kube/config": yaml: did not find expected ',' or '}'"
+      - name: Configure kubeconfig to use with kubectl from provisioning job
+        run: |
+          mkdir ~/.kube
+          echo '${{ needs.provision-eks-with-pulumi.outputs.kubeconfig }}' > ~/.kube/config
+          echo "--- Checking connectivity to cluster"
+          kubectl get nodes
+
+      - name: Install ArgoCD
+        run: |
+          echo "--- Create argo namespace and install it"
+          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+      - name: Expose ArgoCD Dashboard as GitHub environment
+        id: dashboard-expose
+        run: |
+          echo "--- Expose ArgoCD Dashboard via K8s Service"
+          kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+
+          echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
+          until kubectl get service/argocd-server -n argocd --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
+
+          echo "--- Create GitHub environment var"
+          DASHBOARD_HOST="http://$(kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+          echo "The ArgoCD dashboard is accessible at $DASHBOARD_HOST - creating GitHub Environment"
+          echo "::set-output name=dashboard_host::$DASHBOARD_HOST"
+
+      - name: Create GitHub Container Registry Secret to be able to pull from ghcr.io
+        run: |
+          echo "--- Create Secret to access GitHub Container Registry"
+          kubectl create secret docker-registry github-container-registry \
+              --docker-server=ghcr.io \
+              --docker-username=${{ secrets.GHCR_USER }} \
+              --docker-password=${{ secrets.GHCR_PASSWORD }} \
+              --namespace default \
+              --save-config --dry-run=client -o yaml | kubectl apply -f -
+
+      - name: Install ArgoCD CLI
+        run: brew install argocd
+
+      - name: Install & configure argocd-task-create-sync-and-wait
+        run: |
+          echo "--- Install the argocd-task-create-sync-and-wait task"
+          kubectl apply -f tekton-ci-config/argocd-task-app-create.yml
+
+          echo "--- Wait until Secret argocd-initial-admin-secret got created for the following argocd login"
+          until kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data}" | grep "password"; do : ; done
+
+          echo "--- Login argocd CLI - using argocd-server.argocd.svc.cluster.local here instead of the ELB hostname, since this leads to errors sometimes like: dial tcp: lookup a66b7e8e757e14c2491be31d3c10d0c4-203701340.eu-central-1.elb.amazonaws.com on 127.0.0.53:53: no such host"
+          argocd login argocd-server.argocd.svc.cluster.local --username admin --password $(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo) --insecure
+
+          echo "--- Create ConfigMap to point argocd CLI to our argocd-server"
+          kubectl create configmap argocd-env-configmap \
+              --from-literal="ARGOCD_SERVER=$(kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')" \
+              --namespace default \
+              --save-config --dry-run=client -o yaml | kubectl apply -f -
+
+          echo "--- Create AppProject apps2deploy using manifest style incl. role create-sync with needed permissions"
+          kubectl apply -f tekton-ci-config/argocd-appproject-apps2deploy.yml
+          echo "--- Show AppProject details incl. role permissions"
+          kubectl get appproj -n argocd apps2deploy -o yaml
+
+          echo "--- Create Secret for argocd CLI authentication to the argocd-server using AppProject role token"
+          kubectl create secret generic argocd-env-secret \
+            --from-literal=ARGOCD_AUTH_TOKEN=$(argocd proj role create-token apps2deploy create-sync --token-only) \
+            --namespace default \
+            --save-config --dry-run=client -o yaml | kubectl apply -f -
+
+
+  install-and-run-tekton-on-eks:
+    runs-on: ubuntu-latest
+    needs: install-and-run-argocd-on-eks
     environment:
       name: tekton-dashboard
       url: ${{ steps.dashboard-expose.outputs.dashboard_host }}
@@ -212,85 +294,4 @@ jobs:
           -H 'Content-Type: application/json' \
           --data-binary "@tekton-ci-config/triggers/gitlab-push-test-event.json" \
           $TEKTON_EVENTLISTENER_INGRESS_HOST
-
-  install-and-run-argocd-on-eks:
-    runs-on: ubuntu-latest
-    needs: provision-eks-with-pulumi
-    environment:
-      name: argocd-dashboard
-      url: ${{ steps.dashboard-expose.outputs.dashboard_host }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@master
-      # We must use single quotes (!!!) here to access the kubeconfig like this:
-      # echo '${{ needs.provision-eks-with-pulumi.outputs.kubeconfig }}' > ~/.kube/config
-      # Otherwise we'll run into errors like (see https://stackoverflow.com/a/15930393/4964553):
-      # "error: error loading config file "/home/runner/.kube/config": yaml: did not find expected ',' or '}'"
-      - name: Configure kubeconfig to use with kubectl from provisioning job
-        run: |
-          mkdir ~/.kube
-          echo '${{ needs.provision-eks-with-pulumi.outputs.kubeconfig }}' > ~/.kube/config
-          echo "--- Checking connectivity to cluster"
-          kubectl get nodes
-
-      - name: Install ArgoCD
-        run: |
-          echo "--- Create argo namespace and install it"
-          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-          kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-
-      - name: Expose ArgoCD Dashboard as GitHub environment
-        id: dashboard-expose
-        run: |
-          echo "--- Expose ArgoCD Dashboard via K8s Service"
-          kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
-
-          echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
-          until kubectl get service/argocd-server -n argocd --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
-
-          echo "--- Create GitHub environment var"
-          DASHBOARD_HOST="http://$(kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
-          echo "The ArgoCD dashboard is accessible at $DASHBOARD_HOST - creating GitHub Environment"
-          echo "::set-output name=dashboard_host::$DASHBOARD_HOST"
-
-      - name: Create GitHub Container Registry Secret to be able to pull from ghcr.io
-        run: |
-          echo "--- Create Secret to access GitHub Container Registry"
-          kubectl create secret docker-registry github-container-registry \
-              --docker-server=ghcr.io \
-              --docker-username=${{ secrets.GHCR_USER }} \
-              --docker-password=${{ secrets.GHCR_PASSWORD }} \
-              --namespace default \
-              --save-config --dry-run=client -o yaml | kubectl apply -f -
-
-      - name: Install ArgoCD CLI
-        run: brew install argocd
-
-      - name: Install & configure argocd-task-create-sync-and-wait
-        run: |
-          echo "--- Install the argocd-task-create-sync-and-wait task"
-          kubectl apply -f tekton-ci-config/argocd-task-app-create.yml
-
-          echo "--- Wait until Secret argocd-initial-admin-secret got created for the following argocd login"
-          until kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data}" | grep "password"; do : ; done
-
-          echo "--- Login argocd CLI"
-          argocd login $(kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}') --username admin --password $(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo) --insecure
-
-          echo "--- Create ConfigMap to point argocd CLI to our argocd-server"
-          kubectl create configmap argocd-env-configmap \
-              --from-literal="ARGOCD_SERVER=$(kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')" \
-              --namespace default \
-              --save-config --dry-run=client -o yaml | kubectl apply -f -
-
-          echo "--- Create AppProject apps2deploy using manifest style incl. role create-sync with needed permissions"
-          kubectl apply -f tekton-ci-config/argocd-appproject-apps2deploy.yml
-          echo "--- Show AppProject details incl. role permissions"
-          kubectl get appproj -n argocd apps2deploy -o yaml
-
-          echo "--- Create Secret for argocd CLI authentication to the argocd-server using AppProject role token"
-          kubectl create secret generic argocd-env-secret \
-            --from-literal=ARGOCD_AUTH_TOKEN=$(argocd proj role create-token apps2deploy create-sync --token-only) \
-            --namespace default \
-            --save-config --dry-run=client -o yaml | kubectl apply -f -
 
