@@ -121,9 +121,6 @@ jobs:
 
       - name: Install & configure argocd-task-create-sync-and-wait
         run: |
-          echo "--- Install the argocd-task-create-sync-and-wait task"
-          kubectl apply -f tekton-ci-config/argocd-task-app-create.yml
-
           echo "--- Wait until Secret argocd-initial-admin-secret got created for the following argocd login"
           until kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data}" | grep "password"; do : ; done
 
@@ -207,7 +204,7 @@ jobs:
       - name: Create Tekton Task & run it with a TaskRun
         run: |
           echo "--- Create Task"
-          kubectl apply -f tekton-ci-config/task-hello-world.yaml
+          kubectl apply -f tekton-ci-config/tasks/task-hello-world.yaml
 
           echo "--- Start TaskRun"
           tkn task start hello --dry-run > taskRun-hello.yaml
@@ -227,7 +224,8 @@ jobs:
           kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/maven/0.2/maven.yaml
           kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/yq/0.3/yq.yaml
           kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/git-cli/0.3/git-cli.yaml
-          kubectl apply -f tekton-ci-config/replace-image-name-with-yq.yml
+          kubectl apply -f tekton-ci-config/tasks/replace-image-name-with-yq.yml
+          kubectl apply -f tekton-ci-config/tasks/argocd-task-app-create.yml
 
       - name: Create Secrets for GitLab Container Registry & Repository access & apply buildpacks PVC, ServiceAccount & Pipeline
         run: |
