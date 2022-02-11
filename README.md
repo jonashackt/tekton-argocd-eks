@@ -237,7 +237,7 @@ brew install tektoncd/tools/tektoncd-cli
 
 ### Run first Tekton Task
 
-See the [task-hello-world.yaml](tekton-ci-config/task-hello-world.yaml):
+See the [task-hello-world.yaml](tekton-ci-config/tasks/task-hello-world.yaml):
 
 ```yaml
 apiVersion: tekton.dev/v1beta1
@@ -257,7 +257,7 @@ spec:
 Let's apply it to our cluster:
 
 ```shell
-kubectl apply -f tekton-ci-config/task-hello-world.yaml
+kubectl apply -f tekton-ci-config/tasks/task-hello-world.yaml
 ```
 
 Let's show our newly created task:
@@ -2468,7 +2468,7 @@ It uses `CONFIG_URL` and `CONFIG_REVISION` instead, which we both need to provid
 
 #### Dump/list the contents of the fetched config repository
 
-In order to have insights what files are fetched by the git-clone task, we can implement our own custom Task to show us these files. Let's imagine a [dump-directory.yml](tekton-ci-config/dump-directory.yml):
+In order to have insights what files are fetched by the git-clone task, we can implement our own custom Task to show us these files. Let's imagine a [dump-directory.yml](tekton-ci-config/tasks/dump-directory.yml):
 
 ```yaml
 apiVersion: tekton.dev/v1beta1
@@ -2495,7 +2495,7 @@ spec:
       resources: {}
 ```
 
-Use the custom task after you applied it with `kubectl apply -f tekton-ci-config/dump-directory.yml` inside the Tekton pipeline like this:
+Use the custom task after you applied it with `kubectl apply -f tekton-ci-config/tasks/dump-directory.yml` inside the Tekton pipeline like this:
 
 ```yaml
     - name: dump-contents
@@ -2531,7 +2531,7 @@ It produces the following errors (without braking the pipeline, which is double 
 
 As https://stackoverflow.com/a/70944070/4964553 suggests we could use an older version of the Task - or write our own, which is preferred here - since also the older task wasn't able to evaluate the expression with 2 parameters like `"$(params.IMAGE):$(params.SOURCE_REVISION)"`.
 
-So we created our own custom [replace-image-name-with-yq.yml](tekton-ci-config/replace-image-name-with-yq.yml):
+So we created our own custom [replace-image-name-with-yq.yml](tekton-ci-config/tasks/replace-image-name-with-yq.yml):
 
 ```yaml
 apiVersion: tekton.dev/v1beta1
@@ -2668,7 +2668,7 @@ we should see the application beeing deployed through Argo after a maximum of 3 
 
 The Hub task https://hub.tekton.dev/tekton/task/argocd-task-sync-and-wait HAZ NO APP CREATE!
 
-So let's create our own simple Task [argocd-task-app-create.yml](tekton-ci-config/argocd-task-app-create.yml) derived from https://hub.tekton.dev/tekton/task/argocd-task-sync-and-wait and https://github.com/tektoncd/catalog/pull/903/files (since the `v0.1` uses the old ArgoCD version `1.x`):
+So let's create our own simple Task [argocd-task-app-create.yml](tekton-ci-config/tasks/argocd-task-app-create.yml) derived from https://hub.tekton.dev/tekton/task/argocd-task-sync-and-wait and https://github.com/tektoncd/catalog/pull/903/files (since the `v0.1` uses the old ArgoCD version `1.x`):
 
 ```yaml
 apiVersion: tekton.dev/v1beta1
@@ -2732,7 +2732,7 @@ spec:
 And apply it with
 
 ```shell
-kubectl apply -f tekton-ci-config/argocd-task-app-create.yml
+kubectl apply -f tekton-ci-config/tasks/argocd-task-app-create.yml
 ```
 
 
@@ -2863,7 +2863,7 @@ ID          ISSUED-AT                                EXPIRES-AT
 
 Now we finally need to add our application to the `AppProject` we created.
 
-We add it to our [argocd-task-app-create.yml](tekton-ci-config/argocd-task-app-create.yml) `argocd app create` command as ` --project "$(params.argo-appproject)"` with a new parameter `argo-appproject`. 
+We add it to our [argocd-task-app-create.yml](tekton-ci-config/tasks/argocd-task-app-create.yml) `argocd app create` command as ` --project "$(params.argo-appproject)"` with a new parameter `argo-appproject`. 
 
 Finally we need to introduce a new parameter containing only the project name, since the `REPO_PATH_ONLY` parameter containing e.g. `jonashackt/microservice-api-spring-boot` produces an error like `rpc error: code = Unknown desc = invalid resource name \"jonashackt/microservice-api-spring-boot\": [may not contain '/']`.
 
@@ -2904,7 +2904,7 @@ Then we need to install our custom task:
 
 ```yaml
           echo "--- Install the argocd-task-create-sync-and-wait task"
-          kubectl apply -f tekton-ci-config/argocd-task-app-create.yml
+          kubectl apply -f tekton-ci-config/tasks/argocd-task-app-create.yml
 ```
 
 
