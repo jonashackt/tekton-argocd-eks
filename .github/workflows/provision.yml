@@ -287,6 +287,8 @@ jobs:
           echo "--- Get Ingress host name"
           TEKTON_EVENTLISTENER_INGRESS_HOST="http://$(kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
           echo "Our EventListener's hostname is $TEKTON_EVENTLISTENER_INGRESS_HOST"
+          echo "--- Wait until Ingress url is a resolvable host for curl (see https://stackoverflow.com/a/42873372/4964553)"
+          curl --retry 20 -v $TEKTON_EVENTLISTENER_INGRESS_HOST
 
           echo "--- Testdrive Trigger via curl"
           curl -v \
