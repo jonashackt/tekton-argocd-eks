@@ -127,7 +127,7 @@ jobs:
           echo "--- Wait until (hopefully) ArgoCD server deployment is ready to be logged in to"
           kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=argocd-server -n argocd
 
-          echo "--- Login argocd CLI - now wrapped in until to prevent FATA[0000] dial tcp: lookup 12345.eu-central-1.elb.amazonaws.com on 8.8.8.8:53: no such host"
+          echo "--- Login argocd CLI - now wrapped in until to prevent dial tcp: lookup 12345.eu-central-1.elb.amazonaws.com on 8.8.8.8:53: no such host (see https://stackoverflow.com/a/71030112/4964553)"
           until argocd login $(kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}') --username admin --password $(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo) --insecure; do : ; done
 
           echo "--- Create ConfigMap to point argocd CLI to our argocd-server"
@@ -150,7 +150,7 @@ jobs:
 
   install-and-run-tekton-on-eks:
     runs-on: ubuntu-latest
-    needs: install-and-run-argocd-on-eks
+    needs: [provision-eks-with-pulumi, install-and-run-argocd-on-eks]
     environment:
       name: tekton-dashboard
       url: ${{ steps.dashboard-expose.outputs.dashboard_host }}
