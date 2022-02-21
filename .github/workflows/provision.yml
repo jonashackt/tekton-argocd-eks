@@ -182,7 +182,7 @@ jobs:
 
       - name: Wait for Tekton to become ready & show running Tekton pods
         run: |
-          kubectl wait --for=condition=ready pod -l app=tekton-pipelines-controller --namespace tekton-pipelines
+          kubectl wait --for=condition=ready pod -l app=tekton-pipelines-controller --namespace tekton-pipelines --timeout=120s
           kubectl get pods --namespace tekton-pipelines
 
       - name: Expose Tekton Dashboard as GitHub environment
