@@ -2925,6 +2925,37 @@ argocd login $(kubectl get service argocd-server -n argocd --output=jsonpath='{.
 Mind the `--insecure` to prevent the argo CLI from asking things like `WARNING: server certificate had error: x509: certificate is valid for localhost, argocd-server, argocd-server.argocd, argocd-server.argocd.svc, argocd-server.argocd.svc.cluster.local, not a5f715808162c48c1af54069ba37db0e-1371850981.eu-central-1.elb.amazonaws.com. Proceed insecurely (y/n)?`.
 
 
+###### Prevent error `FATA[0000] dial tcp: lookup a965bfb530e8449f5a355f221b2fd107-598531793.eu-central-1.elb.amazonaws.com on 8.8.8.8:53: no such host`
+
+see https://stackoverflow.com/a/71030112/4964553
+
+The problem arises if the `argocd-server` Kubernetes service is freshly installed right before the `argocd login` command is run.
+
+Then the `argocd login` command failes for some time until it finally will work correctly. Assuming some DNS propagation issues we can prevent this error from breaking our CI pipeline by wrapping our `argocd login` command into an `until` like already done in this answer https://stackoverflow.com/a/70108997/4964553
+
+The full command will then look like this:
+
+```shell
+until argocd login $(kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}') --username admin --password $(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo) --insecure; do : ; done
+```
+
+In GitHub Actions this will then look somehow like this:
+
+```
+--- Login argocd CLI - now wrapped in until to prevent FATA[0000] dial tcp: lookup 12345.eu-central-1.elb.amazonaws.com on 8.8.8.8:53: no such host
+time="2022-02-21T12:57:32Z" level=fatal msg="dial tcp: lookup a071bed7e9ea14747951b04360133141-459093397.eu-central-1.elb.amazonaws.com on 127.0.0.53:53: no such host"
+time="2022-02-21T12:57:35Z" level=fatal msg="dial tcp: lookup a071bed7e9ea14747951b04360133141-459093397.eu-central-1.elb.amazonaws.com on 127.0.0.53:53: no such host"
+time="2022-02-21T12:57:37Z" level=fatal msg="dial tcp: lookup a071bed7e9ea14747951b04360133141-459093397.eu-central-1.elb.amazonaws.com on 127.0.0.53:53: no such host"
+[...]
+time="2022-02-21T12:58:27Z" level=fatal msg="dial tcp: lookup a071bed7e9ea14747951b04360133141-459093397.eu-central-1.elb.amazonaws.com on 127.0.0.53:53: no such host"
+time="2022-02-21T12:58:30Z" level=fatal msg="dial tcp: lookup a071bed7e9ea14747951b04360133141-459093397.eu-central-1.elb.amazonaws.com on 127.0.0.53:53: no such host"
+time="2022-02-21T12:58:32Z" level=fatal msg="dial tcp: lookup a071bed7e9ea14747951b04360133141-459093397.eu-central-1.elb.amazonaws.com on 127.0.0.53:53: no such host"
+'admin:login' logged in successfully
+Context 'a071bed7e9ea14747951b04360133141-459093397.eu-central-1.elb.amazonaws.com' updated
+```
+
+
+
 #### Create ConfigMap to point argocd CLI to our argocd-server
 
 We need to create the `ConfigMap` idempotently - so a simple `kubectl create configmap` would crash in GitHub Actions the second time it runs. So let's redesign it to use `kubectl apply -f -` style like that:
