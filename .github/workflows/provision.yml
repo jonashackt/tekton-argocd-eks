@@ -177,8 +177,6 @@ jobs:
           echo "--- Install Tekton Triggers"
           kubectl apply --filename https://storage.googleapis.com/tekton-releases/triggers/previous/v0.18.0/release.yaml
           kubectl apply --filename https://storage.googleapis.com/tekton-releases/triggers/previous/v0.18.0/interceptors.yaml
-          echo "--- Install experimental Pipeline-in-Pipelines Controller"
-          kubectl apply --filename https://storage.googleapis.com/tekton-releases-nightly/pipelines-in-pipelines/latest/release.yaml
 
       - name: Wait for Tekton to become ready & show running Tekton pods
         run: |
@@ -261,7 +259,7 @@ jobs:
       - name: Run Tekton Buildpacks powered Pipeline by creating PipelineRun
         run: |
           echo "--- Trigger PipelineRun in Tekton / K8s"
-          PIPELINE_RUN_NAME=$(kubectl create -f pipeline-run.yml --output=jsonpath='{.metadata.name}')
+          PIPELINE_RUN_NAME=$(kubectl create -f pipelines/pipeline-run.yml --output=jsonpath='{.metadata.name}')
 
           echo "--- Show Tekton PipelineRun logs"
           tkn pipelinerun logs $PIPELINE_RUN_NAME --follow
