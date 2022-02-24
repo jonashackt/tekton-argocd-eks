@@ -13,20 +13,29 @@ spec:
     - name: REPO_PATH_ONLY
       type: string
       description: GitLab group & repo name only (e.g. jonashackt/microservice-api-spring-boot)
+    - name: PROJECT_NAME
+      type: string
+      description: GitLab repo name only (e.g. microservice-api-spring-boot)
     - name: SOURCE_REVISION
       description: The branch, tag or SHA to checkout.
       default: ""
+    - name: CONFIG_URL
+      description: The git repo's matching config repo url.
+    - name: CONFIG_REVISION
+      description: The branch, tag or SHA to checkout.
+      default: ""
     - name: GITLAB_HOST
-      type: string
-      description: Your GitLabs host only (e.g. gitlab.com)
+      description: The GitLab instance to report the status to
+      default: "gitlab.com"
     - name: TEKTON_DASHBOARD_HOST
-      type: string
-      description: The Tekton dashboard host name only
+      description: The Tekton Dashboard URL for the status reports in GitLab
+      default: "http://adfae510ff50e4949b7c7a5949099632-1408242414.eu-central-1.elb.amazonaws.com"
 
   workspaces:
     - name: maven-repo-cache # Maven repository cahce, see https://developers.redhat.com/blog/2020/02/26/speed-up-maven-builds-in-tekton-pipelines#run_a_maven_pipeline
     - name: source-workspace # Directory where application source is located. (REQUIRED)
     - name: cache-workspace # Directory where cache is stored (OPTIONAL)
+    - name: config-workspace # here the config repository is stored
   tasks:
     - name: report-pipeline-start-to-gitlab
       taskRef:
@@ -50,6 +59,7 @@ spec:
           value: "tekton-pipeline"
         - name: "DESCRIPTION"
           value: "Building your commit in Tekton"
+
     - name: fetch-repository # This task fetches a repository from github, using the `git-clone` task you installed
       taskRef:
         name: git-clone
@@ -63,10 +73,7 @@ spec:
           value: "$(params.SOURCE_URL)"
         - name: revision
           value: "$(params.SOURCE_REVISION)"
-        - name: subdirectory
-          value: ""
-        - name: deleteExisting
-          value: "true"
+
     - name: maven-test
       taskRef:
         name: maven
@@ -82,6 +89,7 @@ spec:
           workspace: source-workspace
         - name: maven-settings
           workspace: maven-repo-cache
+
     - name: buildpacks # This task uses the `buildpacks` task to build the application
       taskRef:
         name: buildpacks
@@ -94,11 +102,79 @@ spec:
           workspace: cache-workspace
       params:
         - name: APP_IMAGE
-          value: "$(params.IMAGE)"
+          value: "$(params.IMAGE):$(params.SOURCE_REVISION)"
         - name: CACHE_IMAGE
           value: "$(params.IMAGE):paketo-build-cache"
         - name: BUILDER_IMAGE
           value: paketobuildpacks/builder:base # This is the builder we want the task to use (REQUIRED)
+
+    - name: fetch-config-repository
+      taskRef:
+        name: git-clone
+      runAfter:
+        - buildpacks
+      workspaces:
+        - name: output
+          workspace: config-workspace
+      params:
+        - name: url
+          value: "$(params.CONFIG_URL)"
+        - name: revision
+          value: "$(params.CONFIG_REVISION)"
+
+    - name: replace-config-image-name
+      taskRef:
+        name: replace-image-name-with-yq
+      runAfter:
+        - fetch-config-repository
+      workspaces:
+        - name: source
+          workspace: config-workspace
+      params:
+        - name: IMAGE_NAME
+          value: "$(params.IMAGE):$(params.SOURCE_REVISION)"
+        - name: FILE_PATH
+          value: "./deployment/deployment.yml"
+
+    - name: commit-and-push-to-config-repo
+      taskRef:
+        name: git-cli
+      runAfter:
+        - replace-config-image-name
+      workspaces:
+        - name: source
+          workspace: config-workspace
+      params:
+        - name: GIT_USER_NAME
+          value: "tekton"
+        - name: GIT_USER_EMAIL
+          value: "tekton@eks.io"
+        - name: GIT_SCRIPT
+          value: |
+            git checkout -b "$(params.CONFIG_REVISION)"
+            git status
+            git add .
+            git commit -m "Update to $(params.IMAGE):$(params.SOURCE_REVISION)" && git push --set-upstream origin "$(params.CONFIG_REVISION)" --force
+
+    - name: argo-create-app-sync-wait
+      taskRef:
+        name: argocd-task-create-sync-and-wait
+      runAfter:
+        - commit-and-push-to-config-repo
+      params:
+        - name: application-name
+          value: "$(params.PROJECT_NAME)"
+        - name: config-repository
+          value: "$(params.CONFIG_URL)"
+        - name: config-path
+          value: deployment
+        - name: config-revision
+          value: "$(params.CONFIG_REVISION)"
+        - name: destination-namespace
+          value: default
+        - name: argo-appproject
+          value: apps2deploy
+
   finally:
     - name: report-pipeline-failed-to-gitlab
       when:

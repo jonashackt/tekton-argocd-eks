@@ -237,7 +237,7 @@ brew install tektoncd/tools/tektoncd-cli
 
 ### Run first Tekton Task
 
-See the [task-hello-world.yaml](tekton-ci-config/tasks/task-hello-world.yaml):
+See the [task-hello-world.yaml](tasks/task-hello-world.yaml):
 
 ```yaml
 apiVersion: tekton.dev/v1beta1
@@ -257,7 +257,7 @@ spec:
 Let's apply it to our cluster:
 
 ```shell
-kubectl apply -f tekton-ci-config/tasks/task-hello-world.yaml
+kubectl apply -f tasks/task-hello-world.yaml
 ```
 
 Let's show our newly created task:
@@ -462,7 +462,7 @@ After the first successful secret creation, we sadly get the error `error: faile
 But there's help (see https://stackoverflow.com/a/45881259/4964553): We add `--save-config --dry-run=client -o yaml | kubectl apply -f -` to our command like this:
 
 ```shell
-kubectl create secret docker-registry docker-user-pass \
+kubectl create secret docker-registry gitlab-container-registry \
     --docker-server=registry.gitlab.com \
     --docker-username=${{ secrets.GITLAB_CR_USER }} \
     --docker-password=${{ secrets.GITLAB_CR_PASSWORD }} \
@@ -473,22 +473,22 @@ kubectl create secret docker-registry docker-user-pass \
 Now we made an `apply` out of our `create` kubectl command, which we can use repetitively :)
 
 
-We also need to create a `ServiceAccount` that uses this secret as [ghcr-service-account.yml](tekton-ci-config/ghcr-service-account.yml)
+We also need to create a `ServiceAccount` that uses this secret as [buildpacks-service-account-gitlab.yml](misc/buildpacks-service-account-gitlab.yml)
 
 ```yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: buildpacks-service-account
+  name: buildpacks-service-account-gitlab
 secrets:
-  - name: docker-user-pass
+  - name: gitlab-container-registry
 ```
 
 ### Create buildpacks PVC 
 
 https://buildpacks.io/docs/tools/tekton/#41-pvcs
 
-Create new [buildpacks-source-pvc.yml](tekton-ci-config/buildpacks-source-pvc.yml):
+Create new [buildpacks-source-pvc.yml](misc/buildpacks-source-pvc.yml):
 
 ```yaml
 apiVersion: v1
@@ -505,7 +505,7 @@ spec:
 
 ### Create Pipeline
 
-Create [pipeline.yml](tekton-ci-config/pipeline.yml):
+Create [pipeline.yml](pipelines/pipeline.yml):
 
 ```yaml
 apiVersion: tekton.dev/v1beta1
@@ -572,12 +572,14 @@ spec:
 And now apply all three configs with:
 
 ```shell
-kubectl apply -f tekton-ci-config/buildpacks-source-pvc.yml -f tekton-ci-config/ghcr-service-account.yml -f tekton-ci-config/pipeline.yml
+kubectl apply -f misc/buildpacks-source-pvc.yml
+kubectl apply -f misc/buildpacks-service-account-gitlab.yml
+kubectl apply -f pipelines/pipeline.yml
 ```
 
 ### Create PipelineRun
 
-Create [pipeline-run.yml](tekton-ci-config/pipeline-run.yml):
+Create [pipeline-run.yml](pipelines/pipeline-run.yml):
 
 ```yaml
 apiVersion: tekton.dev/v1beta1
@@ -605,7 +607,7 @@ spec:
 A crucial point here is to change the `metadata: name: buildpacks-test-pipeline-run` into `metadata: generateName: buildpacks-test-pipeline-run-`. Why? Because if we use the `name` parameter every `kubectl apply` tries to create the `PipelineRun` object with the same name which results in errors like this:
 
 ```shell
-Error from server (AlreadyExists): error when creating "tekton-ci-config/pipeline-run.yml": pipelineruns.tekton.dev "buildpacks-test-pipeline-run" already exists
+Error from server (AlreadyExists): error when creating "misc/pipeline-run.yml": pipelineruns.tekton.dev "buildpacks-test-pipeline-run" already exists
 ```
 
 Using the `generateName` field fixes our problem (see https://stackoverflow.com/questions/69880096/how-to-restart-tekton-pipelinerun-having-a-pipeline-run-yml-defined-in-git-e-g/69880097#69880097), although we should implement a kind of garbage collection for our PipelineRun objects...
@@ -616,7 +618,7 @@ Also mind the `params: name: image` and insert an image name containing the corr
 Also apply with
 
 ```shell
-kubectl apply -f tekton-ci-config/pipeline-run.yml
+kubectl apply -f misc/pipeline-run.yml
 ```
 
 Looking into the Tekton dashboard we should now finally see a successful Pipeline run:
@@ -658,7 +660,7 @@ First we need to install the Task in our GitHub Actions [provision.yml](.github/
 kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/maven/0.2/maven.yaml
 ```
 
-Now we need to enhance our [pipeline.yml](tekton-ci-config/pipeline.yml) with a new workspace `maven-settings` and the Task definition `maven-test`, which should also be defined as `runAfter` target in the `buildpacks` Task:  
+Now we need to enhance our [pipeline.yml](pipelines/pipeline.yml) with a new workspace `maven-settings` and the Task definition `maven-test`, which should also be defined as `runAfter` target in the `buildpacks` Task:  
 
 ```yaml
   workspaces:
@@ -687,7 +689,7 @@ Now we need to enhance our [pipeline.yml](tekton-ci-config/pipeline.yml) with a 
         - maven-test
 ```
 
-We also should enhance our [pipeline-run.yml](tekton-ci-config/pipeline-run.yml) and [gitlab-push-listener.yml](tekton-ci-config/triggers/gitlab-push-listener.yml) to define the additional workspace:
+We also should enhance our [pipeline-run.yml](pipelines/pipeline-run.yml) and [gitlab-push-listener.yml](triggers/gitlab-push-listener.yml) to define the additional workspace:
 
 ```yaml
   pipelineRef:
@@ -724,7 +726,7 @@ It seems that the [Tekton Hub's Maven Task](https://hub.tekton.dev/tekton/task/m
 
 As stated in https://developers.redhat.com/blog/2020/02/26/speed-up-maven-builds-in-tekton-pipelines#maven_task_with_a_workspace we need to define our own Task for that.
 
-As we don't need the `settings.xml` configuration (e.g. for Proxy settings), which is the main point of the Tekton Hub's Maven Task, we can simply create our own - see [task-maven-with-cache.yml](tekton-ci-config/task-maven-with-cache.yml):
+As we don't need the `settings.xml` configuration (e.g. for Proxy settings), which is the main point of the Tekton Hub's Maven Task, we can simply create our own - see [task-maven-with-cache.yml](tasks/task-maven-with-cache.yml):
 
 ```yaml
 apiVersion: tekton.dev/v1alpha1
@@ -756,11 +758,11 @@ spec:
 We need to `kubectl apply` our Task `maven-with-cache` with:
 
 ```shell
-kubectl apply -f tekton-ci-config/task-maven-with-cache.yml
+kubectl apply -f tasks/task-maven-with-cache.yml
 ```
 
 
-We also need to use our new Maven Task inside our [pipeline.yml](tekton-ci-config/pipeline.yml):
+We also need to use our new Maven Task inside our [pipeline.yml](pipelines/pipeline.yml):
 
 ```yaml
 workspaces:
@@ -811,7 +813,7 @@ So we need to use a separate `subPath` inside our already existing PVC `buildpac
 
 As stated in https://buildpacks.io/docs/tools/tekton/#43-pipeline __a Tekton workspace could be simply seen as a shared directory__ (see https://tekton.dev/docs/pipelines/workspaces/, where I didn't get this first).
 
-So we finally simply provide a new workspace using the existing PVC but a different `subPath` to our [pipeline-run.yml](tekton-ci-config/pipeline-run.yml) & [gitlab-push-listener.yml](tekton-ci-config/triggers/gitlab-push-listener.yml):
+So we finally simply provide a new workspace using the existing PVC but a different `subPath` to our [pipeline-run.yml](pipelines/pipeline-run.yml) & [gitlab-push-listener.yml](triggers/gitlab-push-listener.yml):
 
 ```yaml
     - name: maven-repo-cache
@@ -895,7 +897,7 @@ kubectl apply --filename https://storage.googleapis.com/tekton-releases/triggers
 
 See https://github.com/tektoncd/triggers/blob/v0.17.0/examples/rbac.yaml
 
-So we also create [serviceaccount-rb-crb.yml](tekton-ci-config/triggers/serviceaccount-rb-crb.yml):
+So we also create [serviceaccount-rb-crb.yml](triggers/serviceaccount-rb-crb.yml):
 
 ```yaml
 apiVersion: v1
@@ -930,7 +932,7 @@ roleRef:
 ```
 
 ```shell
-kubectl apply -f tekton-ci-config/triggers/serviceaccount-rb-crb.yml
+kubectl apply -f triggers/serviceaccount-rb-crb.yml
 ```
 
 
@@ -938,7 +940,7 @@ kubectl apply -f tekton-ci-config/triggers/serviceaccount-rb-crb.yml
 
 As our Tekton Trigger API will be setup as a public API in the end, we need to secure our Trigger API somehow.
 
-One way is to create a secret ID the calling JSON must contain. So let's create [tekton-trigger-secret.yml](tekton-ci-config/triggers/tekton-trigger-secret.yml):
+One way is to create a secret ID the calling JSON must contain. So let's create [tekton-trigger-secret.yml](triggers/tekton-trigger-secret.yml):
 
 ```yaml
 apiVersion: v1
@@ -951,14 +953,14 @@ stringData:
 ```
 
 ```shell
-kubectl apply -f tekton-ci-config/triggers/tekton-trigger-secret.yml
+kubectl apply -f triggers/tekton-trigger-secret.yml
 ```
 
 ### EventListener
 
-So let's start with the `EventListener` . We'll adapt the `EventListener` from the example (see https://github.com/tektoncd/triggers/blob/main/examples/v1beta1/gitlab/gitlab-push-listener.yaml) to use our Buildpacks Pipeline defined in [pipeline.yml](tekton-ci-config/pipeline.yml).
+So let's start with the `EventListener` . We'll adapt the `EventListener` from the example (see https://github.com/tektoncd/triggers/blob/main/examples/v1beta1/gitlab/gitlab-push-listener.yaml) to use our Buildpacks Pipeline defined in [pipeline.yml](pipelines/pipeline.yml).
 
-Therefore let's create a new file called [gitlab-push-listener.yml](tekton-ci-config/triggers/gitlab-push-listener.yml):
+Therefore let's create a new file called [gitlab-push-listener.yml](triggers/gitlab-push-listener.yml):
 
 ```yaml
 apiVersion: triggers.tekton.dev/v1beta1
@@ -1029,7 +1031,7 @@ spec:
 Now apply it to our cluster via:
 
 ```shell
-kubectl apply -f tekton-ci-config/triggers/gitlab-push-listener.yml
+kubectl apply -f triggers/gitlab-push-listener.yml
 ```
 
 > Tekton Triggers creates a new Deployment and Service for the EventListener
@@ -1077,7 +1079,7 @@ Choose the latest event and click on `View details`. Scroll down again and you s
 
 ![gitlab-webhook-request](screenshots/gitlab-webhook-request.png)
 
-Copy the whole part into a local file. In this example project this file is called [gitlab-push-test-event.json](tekton-ci-config/triggers/gitlab-push-test-event.json):
+Copy the whole part into a local file. In this example project this file is called [gitlab-push-test-event.json](triggers/gitlab-push-test-event.json):
 
 ```json
 {
@@ -1208,7 +1210,7 @@ curl -v \
 -H 'X-GitLab-Token: 1234567' \
 -H 'X-Gitlab-Event: Push Hook' \
 -H 'Content-Type: application/json' \
---data-binary "@tekton-ci-config/triggers/gitlab-push-test-event.json" \
+--data-binary "@triggers/gitlab-push-test-event.json" \
 http://localhost:8080
 ```
 
@@ -1281,7 +1283,7 @@ spec:
 ```
 
 ```shell
-kubectl apply -f tekton-ci-config/triggers/tekton-eventlistener-ingress.yml
+kubectl apply -f triggers/tekton-eventlistener-ingress.yml
 ```
 
 #### 4. Get Ingress object's IP address
@@ -1292,7 +1294,7 @@ kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loa
 
 #### 5. Testdrive Trigger via curl
 
-Now let's try our `curl` using the predefined [gitlab-push-test-event.json](tekton-ci-config/triggers/gitlab-push-test-event.json):
+Now let's try our `curl` using the predefined [gitlab-push-test-event.json](triggers/gitlab-push-test-event.json):
 
 ```shell
 TEKTON_EVENTLISTENER_INGRESS_HOST="http://$(kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
@@ -1301,7 +1303,7 @@ curl -v \
 -H 'X-GitLab-Token: 1234567' \
 -H 'X-Gitlab-Event: Push Hook' \
 -H 'Content-Type: application/json' \
---data-binary "@tekton-ci-config/triggers/gitlab-push-test-event.json" \
+--data-binary "@triggers/gitlab-push-test-event.json" \
 $TEKTON_EVENTLISTENER_INGRESS_HOST
 ```
 
@@ -1317,7 +1319,7 @@ And as the creation of an Ingress object doesn't instantly provides an `hostname
           kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.34.1/deploy/static/provider/cloud/deploy.yaml
           
           echo "--- Apply Tekton EventListener Ingress"
-          kubectl apply -f tekton-ci-config/triggers/tekton-eventlistener-ingress.yml
+          kubectl apply -f triggers/tekton-eventlistener-ingress.yml
 
           echo "--- Wait until Ingress url is present (see https://stackoverflow.com/a/70108500/4964553)"
           until kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
@@ -1331,7 +1333,7 @@ And as the creation of an Ingress object doesn't instantly provides an `hostname
           -H 'X-GitLab-Token: 1234567' \
           -H 'X-Gitlab-Event: Push Hook' \
           -H 'Content-Type: application/json' \
-          --data-binary "@tekton-ci-config/triggers/gitlab-push-test-event.json" \
+          --data-binary "@triggers/gitlab-push-test-event.json" \
           $TEKTON_EVENTLISTENER_INGRESS_HOST
 ```
 
@@ -1339,7 +1341,7 @@ And as the creation of an Ingress object doesn't instantly provides an `hostname
 
 ### Parameterize PipelineRun in Tekton Triggers EventListener to use values from Webhook send json 
 
-We now should extend our [gitlab-push-listener.yml](tekton-ci-config/triggers/gitlab-push-listener.yml) to use the values send by the GitLab Webhook via json.
+We now should extend our [gitlab-push-listener.yml](triggers/gitlab-push-listener.yml) to use the values send by the GitLab Webhook via json.
 
 Our file now looks like this:
 
@@ -1491,7 +1493,7 @@ Now we can use these GitHub repo secrets to create the actual Kubernetes secret 
 
 ### Create task leveraging gitlab-set-status
 
-Using the Tekton Hub task https://hub.tekton.dev/tekton/task/gitlab-set-status we can create a new step inside our [Tekton Pipeline](tekton-ci-config/pipeline.yml). But first ne need to create some new parameters for our Pipeline:
+Using the Tekton Hub task https://hub.tekton.dev/tekton/task/gitlab-set-status we can create a new step inside our [Tekton Pipeline](pipelines/pipeline.yml). But first ne need to create some new parameters for our Pipeline:
 
 ```yaml
   params:
@@ -1559,7 +1561,7 @@ Finally the `CONTEXT` and `DESCRIPTION` should contain useful information to be 
 
 ### Add new gitlab-set-status parameters to PipelineRun and EventListener
 
-Our [pipeline-run.yml](tekton-ci-config/pipeline-run.yml) (for manual triggering):
+Our [pipeline-run.yml](pipelines/pipeline-run.yml) (for manual triggering):
 
 ```yaml
 ...
@@ -1578,7 +1580,7 @@ Our [pipeline-run.yml](tekton-ci-config/pipeline-run.yml) (for manual triggering
       value: http://abd1c6f235c9642bf9d4cdf632962298-1232135946.eu-central-1.elb.amazonaws.com
 ```
 
-and the [EventListener](tekton-ci-config/triggers/gitlab-push-listener.yml) (for automatic triggering by our gitlab.com projects) need to pass some new parameters in order to get the `gitlab-set-status` task working:
+and the [EventListener](triggers/gitlab-push-listener.yml) (for automatic triggering by our gitlab.com projects) need to pass some new parameters in order to get the `gitlab-set-status` task working:
 
 ```yaml
                 params:
@@ -1605,7 +1607,7 @@ But luckily inside our GitHub Actions [provision.yml](.github/workflows/provisio
 ```yaml
           echo "--- Insert Tekton dashboard url into EventListener config and apply it (see https://stackoverflow.com/a/70152914/4964553)"
           TEKTON_DASHBOARD_HOST="${{ steps.dashboard-expose.outputs.dashboard_host }}"
-          sed "s#{{TEKTON_DASHBOARD_HOST}}#$TEKTON_DASHBOARD_HOST#g" tekton-ci-config/triggers/gitlab-push-listener.yml | kubectl apply -f -
+          sed "s#{{TEKTON_DASHBOARD_HOST}}#$TEKTON_DASHBOARD_HOST#g" triggers/gitlab-push-listener.yml | kubectl apply -f -
 ```
 
 Using sed we simply replace `{{TEKTON_DASHBOARD_HOST}}` with the already defined GitHub Actions variable `${{ steps.dashboard-expose.outputs.dashboard_host }}`.
@@ -1621,7 +1623,7 @@ Now our GitLab Pipelines view gets filled with a Tekton Pipelines status (`succe
 
 Now that we generally know how to use the `gitlab-set-status` Task, we could also use another Task definition to report the starting of a Tekton Pipeline run to GitLab UI.
 
-Therefore we enhance our [Tekton Pipeline](tekton-ci-config/pipeline.yml) with a new Task starting the whole Pipeline called `report-pipeline-start-to-gitlab`:
+Therefore we enhance our [Tekton Pipeline](pipelines/pipeline.yml) with a new Task starting the whole Pipeline called `report-pipeline-start-to-gitlab`:
 
 ```yaml
   tasks:
@@ -1729,7 +1731,7 @@ and
 ```
 
 
-In the end this results in our [Tekton Pipeline's](tekton-ci-config/pipeline.yml) `finally` block locking like this:
+In the end this results in our [Tekton Pipeline's](pipelines/pipeline.yml) `finally` block locking like this:
 
 ```yaml
 ...
@@ -1850,7 +1852,7 @@ curl https://storage.googleapis.com/tekton-releases/pipeline/latest/release.yaml
 
 #### Create a generic gitlab-set-status pipeline for later re-use
 
-Let's try to create a generic Tekton Pipeline for the `gitlab-set-status` as [generic-gitlab-set-status.yml](tekton-ci-config/generic-gitlab-set-status.yml):
+Let's try to create a generic Tekton Pipeline for the `gitlab-set-status` as [generic-gitlab-set-status.yml](pipelines/generic-gitlab-set-status.yml):
 
 ```yaml
 apiVersion: tekton.dev/v1beta1
@@ -1904,13 +1906,13 @@ As you can see we define the `TEKTON_DASHBOARD_HOST` using brackets so we can la
 
 ```shell
 TEKTON_DASHBOARD_HOST="${{ steps.dashboard-expose.outputs.dashboard_host }}"
-sed "s#{{TEKTON_DASHBOARD_HOST}}#$TEKTON_DASHBOARD_HOST#g" tekton-ci-config/generic-gitlab-set-status.yml | kubectl apply -f -
+sed "s#{{TEKTON_DASHBOARD_HOST}}#$TEKTON_DASHBOARD_HOST#g" pipelines/generic-gitlab-set-status.yml | kubectl apply -f -
 ```
 
 
 #### Use the generic gitlab-set-status pipeline in our actual pipeline
 
-In our [pipeline.yml](tekton-ci-config/pipeline.yml) we can now reduce many lines that we don't need to pass to the generic gitlab-set-status pipeline any more. So our pipeline becomes much more readable and only the things remain that are naturally defined inside a pipeline. See the usage of our generic gitlab-set-status pipeline here using the Pipelines-in-Pipelines feature: 
+In our [pipeline.yml](pipelines/pipeline.yml) we can now reduce many lines that we don't need to pass to the generic gitlab-set-status pipeline any more. So our pipeline becomes much more readable and only the things remain that are naturally defined inside a pipeline. See the usage of our generic gitlab-set-status pipeline here using the Pipelines-in-Pipelines feature: 
 
 ```yaml
     - name: report-pipeline-start-to-gitlab
@@ -1941,7 +1943,7 @@ The code needed to invoke the gitlab-set-status task is reduced all the way:
 
 ![pip-in-pip-codereduction-finally](screenshots/pip-in-pip-codereduction-finally.png)
 
-Finally we can also __remove code__ from our [pipeline-run.yml](tekton-ci-config/pipeline-run.yml) and [gitlab-push-listener.yml](tekton-ci-config/triggers/gitlab-push-listener.yml):
+Finally we can also __remove code__ from our [pipeline-run.yml](pipelines/pipeline-run.yml) and [gitlab-push-listener.yml](triggers/gitlab-push-listener.yml):
 
 ```yaml
     - name: GITLAB_HOST
@@ -1966,7 +1968,7 @@ The Tekton pipeline failed and I had to dig into the Pod logs to find the error 
 
 ![node-volume-node-affinity-conflict](screenshots/node-volume-node-affinity-conflict.png)
 
-As described in https://stackoverflow.com/a/55514852/4964553 and the section `Statefull applications` in https://vorozhko.net/120-days-of-aws-eks-kubernetes-in-staging two nodes are provisioned on other AWS availability zones as the persistent volume (PV), which is created by applying our PersistendVolumeClaim in [buildpacks-source-pvc.yml](tekton-ci-config/buildpacks-source-pvc.yml).
+As described in https://stackoverflow.com/a/55514852/4964553 and the section `Statefull applications` in https://vorozhko.net/120-days-of-aws-eks-kubernetes-in-staging two nodes are provisioned on other AWS availability zones as the persistent volume (PV), which is created by applying our PersistendVolumeClaim in [buildpacks-source-pvc.yml](misc/buildpacks-source-pvc.yml).
 
 To double check that, you need to look into/describe your nodes:
 
@@ -2021,7 +2023,7 @@ Annotations:        node.alpha.kubernetes.io/ttl: 0
 ...
 ```
 
-Now looking into our `PersistentVolume` automatically provisioned after applying our `PersistentVolumeClaim` with [buildpacks-source-pvc.yml](tekton-ci-config/buildpacks-source-pvc.yml), we see the problem already:
+Now looking into our `PersistentVolume` automatically provisioned after applying our `PersistentVolumeClaim` with [buildpacks-source-pvc.yml](misc/buildpacks-source-pvc.yml), we see the problem already:
 
 ```shell
 $ k get pv
@@ -2068,12 +2070,12 @@ k get storageclasses gp2 -o yaml
 and add the `allowedTopologies` configuration with:
 
 ```
-k apply -f tekton-ci-config/storage-class.yml
+k apply -f misc/storage-class.yml
 ```
 
 As you see the `allowedTopologies` configuration defines that the `failure-domain.beta.kubernetes.io/zone` of the `PersistentVolume` must be either in `eu-central-1a` or `eu-central-1b` - not `eu-central-1c`!
 
-Next apply this `StorageClass` and delete the `PersistentVolumeClaim`. Now add `storageClassName: gp2` to the PersistendVolumeClaim definition in [buildpacks-source-pvc.yml](tekton-ci-config/buildpacks-source-pvc.yml):
+Next apply this `StorageClass` and delete the `PersistentVolumeClaim`. Now add `storageClassName: gp2` to the PersistendVolumeClaim definition in [buildpacks-source-pvc.yml](misc/buildpacks-source-pvc.yml):
 
 ```yaml
 apiVersion: v1
@@ -2463,12 +2465,12 @@ As already used to clone the application repository, we simply use the [git-clon
           value: "$(params.CONFIG_REVISION)"
 ```
 
-It uses `CONFIG_URL` and `CONFIG_REVISION` instead, which we both need to provide inside our [pipeline-run.yml](tekton-ci-config/pipeline-run.yml).
+It uses `CONFIG_URL` and `CONFIG_REVISION` instead, which we both need to provide inside our [pipeline-run.yml](pipelines/pipeline-run.yml).
 
 
 #### Dump/list the contents of the fetched config repository
 
-In order to have insights what files are fetched by the git-clone task, we can implement our own custom Task to show us these files. Let's imagine a [dump-directory.yml](tekton-ci-config/tasks/dump-directory.yml):
+In order to have insights what files are fetched by the git-clone task, we can implement our own custom Task to show us these files. Let's imagine a [dump-directory.yml](tasks/dump-directory.yml):
 
 ```yaml
 apiVersion: tekton.dev/v1beta1
@@ -2495,7 +2497,7 @@ spec:
       resources: {}
 ```
 
-Use the custom task after you applied it with `kubectl apply -f tekton-ci-config/tasks/dump-directory.yml` inside the Tekton pipeline like this:
+Use the custom task after you applied it with `kubectl apply -f tasks/dump-directory.yml` inside the Tekton pipeline like this:
 
 ```yaml
     - name: dump-contents
@@ -2531,7 +2533,7 @@ It produces the following errors (without braking the pipeline, which is double 
 
 As https://stackoverflow.com/a/70944070/4964553 suggests we could use an older version of the Task - or write our own, which is preferred here - since also the older task wasn't able to evaluate the expression with 2 parameters like `"$(params.IMAGE):$(params.SOURCE_REVISION)"`.
 
-So we created our own custom [replace-image-name-with-yq.yml](tekton-ci-config/tasks/replace-image-name-with-yq.yml):
+So we created our own custom [replace-image-name-with-yq.yml](tasks/replace-image-name-with-yq.yml):
 
 ```yaml
 apiVersion: tekton.dev/v1beta1
@@ -2579,7 +2581,7 @@ Now we need to commit and push the new image tag to our config repository. There
 
 Maybe we can use the already existing GitHub PAT we created for the GitHub Container Registry access?!
 
-But we need to create a new `basic-auth` Secret in our GitHub Actions pipeline. Therefore we create a [gitlab-push-secret.yml](tekton-ci-config/gitlab-push-secret.yml):
+But we need to create a new `basic-auth` Secret in our GitHub Actions pipeline. Therefore we create a [gitlab-push-secret.yml](misc/gitlab-push-secret.yml):
 
 ```yaml
 apiVersion: v1
@@ -2600,10 +2602,10 @@ and substitute the `{{GITLAB_PUSH_TOKEN}}` using `sed` in our GitHub Actions pip
       - name: Create Secret for GitHub based configuration repository
         run: |
           echo "--- Create Secret for GitHub based configuration repository"
-          sed "s#{{GITLAB_PUSH_TOKEN}}#${{ secrets.GITLAB_PUSH_TOKEN }}#g" tekton-ci-config/gitlab-push-secret.yml | kubectl apply -f -
+          sed "s#{{GITLAB_PUSH_TOKEN}}#${{ secrets.GITLAB_PUSH_TOKEN }}#g" misc/gitlab-push-secret.yml | kubectl apply -f -
 ```
 
-Also we need to add the new Secret to our `ServiceAccount` inside [buildpacks-service-account-gitlab.yml](tekton-ci-config/buildpacks-service-account-gitlab.yml):
+Also we need to add the new Secret to our `ServiceAccount` inside [buildpacks-service-account-gitlab.yml](misc/buildpacks-service-account-gitlab.yml):
 
 ```yaml
 apiVersion: v1
@@ -2668,7 +2670,7 @@ we should see the application beeing deployed through Argo after a maximum of 3 
 
 The Hub task https://hub.tekton.dev/tekton/task/argocd-task-sync-and-wait HAZ NO APP CREATE!
 
-So let's create our own simple Task [argocd-task-app-create.yml](tekton-ci-config/tasks/argocd-task-app-create.yml) derived from https://hub.tekton.dev/tekton/task/argocd-task-sync-and-wait and https://github.com/tektoncd/catalog/pull/903/files (since the `v0.1` uses the old ArgoCD version `1.x`):
+So let's create our own simple Task [argocd-task-app-create.yml](tasks/argocd-task-app-create.yml) derived from https://hub.tekton.dev/tekton/task/argocd-task-sync-and-wait and https://github.com/tektoncd/catalog/pull/903/files (since the `v0.1` uses the old ArgoCD version `1.x`):
 
 ```yaml
 apiVersion: tekton.dev/v1beta1
@@ -2732,7 +2734,7 @@ spec:
 And apply it with
 
 ```shell
-kubectl apply -f tekton-ci-config/tasks/argocd-task-app-create.yml
+kubectl apply -f tasks/argocd-task-app-create.yml
 ```
 
 
@@ -2863,13 +2865,13 @@ ID          ISSUED-AT                                EXPIRES-AT
 
 Now we finally need to add our application to the `AppProject` we created.
 
-We add it to our [argocd-task-app-create.yml](tekton-ci-config/tasks/argocd-task-app-create.yml) `argocd app create` command as ` --project "$(params.argo-appproject)"` with a new parameter `argo-appproject`. 
+We add it to our [argocd-task-app-create.yml](tasks/argocd-task-app-create.yml) `argocd app create` command as ` --project "$(params.argo-appproject)"` with a new parameter `argo-appproject`. 
 
 Finally we need to introduce a new parameter containing only the project name, since the `REPO_PATH_ONLY` parameter containing e.g. `jonashackt/microservice-api-spring-boot` produces an error like `rpc error: code = Unknown desc = invalid resource name \"jonashackt/microservice-api-spring-boot\": [may not contain '/']`.
 
-So let's introduce `PROJECT_NAME` to our [pipeline.yml](tekton-ci-config/pipeline.yml), which we can also retrieve easily in our EventListener / Tekton Trigger solution implemented in [gitlab-push-listener.yml](tekton-ci-config/triggers/gitlab-push-listener.yml).
+So let's introduce `PROJECT_NAME` to our [pipeline.yml](pipelines/pipeline.yml), which we can also retrieve easily in our EventListener / Tekton Trigger solution implemented in [gitlab-push-listener.yml](triggers/gitlab-push-listener.yml).
 
-There we can use `$(body.project.name)` inside the TriggerBinding to retrieve the project name from the payload (see [gitlab-push-test-event.json](tekton-ci-config/triggers/gitlab-push-test-event.json)) and use it later in the parameter definition.
+There we can use `$(body.project.name)` inside the TriggerBinding to retrieve the project name from the payload (see [gitlab-push-test-event.json](triggers/gitlab-push-test-event.json)) and use it later in the parameter definition.
 
 Mind the spec params definition of `project_name` also to not run into `'$(tt.params.project_name)' must be declared in spec.params` errors. Now the parameter can finally be used as:
 
@@ -2904,7 +2906,7 @@ Then we need to install our custom task:
 
 ```yaml
           echo "--- Install the argocd-task-create-sync-and-wait task"
-          kubectl apply -f tekton-ci-config/tasks/argocd-task-app-create.yml
+          kubectl apply -f tasks/argocd-task-app-create.yml
 ```
 
 
@@ -2973,7 +2975,7 @@ We need to create the `ConfigMap` idempotently - so a simple `kubectl create con
 
 Since all those commands are quite bloated, we should better go with `AppProject` yaml manifest like https://argo-cd.readthedocs.io/en/stable/user-guide/projects/#configuring-rbac-with-projects and https://github.com/argoproj/argo-cd/issues/5382
 
-So let's create a manifest file like [argocd-appproject-apps2deploy.yml](tekton-ci-config/argocd-appproject-apps2deploy.yml):
+So let's create a manifest file like [argocd-appproject-apps2deploy.yml](argocd/argocd-appproject-apps2deploy.yml):
 
 ```yaml
 apiVersion: argoproj.io/v1alpha1
@@ -3001,7 +3003,7 @@ spec:
 Let's apply it with
 
 ```shell
-kubectl apply -f tekton-ci-config/argocd-appproject-apps2deploy.yml
+kubectl apply -f argocd/argocd-appproject-apps2deploy.yml
 ```
 
 We also check the new role has been created with `argocd proj role list apps2deploy`.
@@ -3019,7 +3021,6 @@ kubectl create secret generic argocd-env-secret \
   --namespace default \
   --save-config --dry-run=client -o yaml | kubectl apply -f -
 ```
-
 
 
 
