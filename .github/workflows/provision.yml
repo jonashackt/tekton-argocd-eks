@@ -137,7 +137,7 @@ jobs:
               --save-config --dry-run=client -o yaml | kubectl apply -f -
 
           echo "--- Create AppProject apps2deploy using manifest style incl. role create-sync with needed permissions"
-          kubectl apply -f tekton-ci-config/argocd-appproject-apps2deploy.yml
+          kubectl apply -f argocd/argocd-appproject-apps2deploy.yml
           echo "--- Show AppProject details incl. role permissions"
           kubectl get appproj -n argocd apps2deploy -o yaml
 
@@ -170,8 +170,8 @@ jobs:
 
       - name: Install Tekton Pipelines, Dashboard, Triggers
         run: |
-          echo "--- Install Tekton Pipelines with alpha features enabled (see https://stackoverflow.com/a/70336211/4964553 & https://github.com/tektoncd/experimental/issues/785#issuecomment-909049989)"
-          curl https://storage.googleapis.com/tekton-releases/pipeline/previous/v0.32.0/release.yaml | sed "s#stable#alpha#g" | kubectl apply -f -
+          echo "--- Install Tekton Pipelines"
+          kubectl apply --filename https://storage.googleapis.com/tekton-releases/pipeline/previous/v0.32.0/release.yaml
           echo "--- Install Tekton Dashboard"
           kubectl apply --filename https://github.com/tektoncd/dashboard/releases/latest/download/tekton-dashboard-release.yaml
           echo "--- Install Tekton Triggers"
@@ -207,7 +207,7 @@ jobs:
       - name: Create Tekton Task & run it with a TaskRun
         run: |
           echo "--- Create Task"
-          kubectl apply -f tekton-ci-config/tasks/task-hello-world.yaml
+          kubectl apply -f tasks/task-hello-world.yaml
 
           echo "--- Start TaskRun"
           tkn task start hello --dry-run > taskRun-hello.yaml
@@ -227,8 +227,8 @@ jobs:
           kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/maven/0.2/maven.yaml
           kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/yq/0.3/yq.yaml
           kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/git-cli/0.3/git-cli.yaml
-          kubectl apply -f tekton-ci-config/tasks/replace-image-name-with-yq.yml
-          kubectl apply -f tekton-ci-config/tasks/argocd-task-app-create.yml
+          kubectl apply -f tasks/replace-image-name-with-yq.yml
+          kubectl apply -f tasks/argocd-task-app-create.yml
 
       - name: Create Secrets for GitLab Container Registry & Repository access & apply buildpacks PVC, ServiceAccount & Pipeline
         run: |
@@ -247,19 +247,21 @@ jobs:
               --save-config --dry-run=client -o yaml | kubectl apply -f -
 
           echo "--- Create Secret for GitLab based configuration repository"
-          sed "s#{{GITLAB_PUSH_TOKEN}}#${{ secrets.GITLAB_PUSH_TOKEN }}#g" tekton-ci-config/gitlab-push-secret.yml | kubectl apply -f -
+          sed "s#{{GITLAB_PUSH_TOKEN}}#${{ secrets.GITLAB_PUSH_TOKEN }}#g" misc/gitlab-push-secret.yml | kubectl apply -f -
 
           echo "--- apply buildpacks PVC, ServiceAccount & Pipeline"
-          kubectl apply -f tekton-ci-config/buildpacks-source-pvc.yml -f tekton-ci-config/buildpacks-service-account-gitlab.yml -f tekton-ci-config/pipeline.yml
+          kubectl apply -f misc/buildpacks-source-pvc.yml
+          kubectl apply -f misc/buildpacks-service-account-gitlab.yml
+          kubectl apply -f pipelines/pipeline.yml
 
           echo "--- Insert Tekton dashboard url into generic-gitlab-set-status Pipeline config and apply it (see https://stackoverflow.com/a/70890805/4964553)"
           TEKTON_DASHBOARD_HOST="${{ steps.dashboard-expose.outputs.dashboard_host }}"
-          sed "s#{{TEKTON_DASHBOARD_HOST}}#$TEKTON_DASHBOARD_HOST#g" tekton-ci-config/generic-gitlab-set-status.yml | kubectl apply -f -
+          sed "s#{{TEKTON_DASHBOARD_HOST}}#$TEKTON_DASHBOARD_HOST#g" pipelines/generic-gitlab-set-status.yml | kubectl apply -f -
 
       - name: Run Tekton Buildpacks powered Pipeline by creating PipelineRun
         run: |
           echo "--- Trigger PipelineRun in Tekton / K8s"
-          PIPELINE_RUN_NAME=$(kubectl create -f tekton-ci-config/pipeline-run.yml --output=jsonpath='{.metadata.name}')
+          PIPELINE_RUN_NAME=$(kubectl create -f pipeline-run.yml --output=jsonpath='{.metadata.name}')
 
           echo "--- Show Tekton PipelineRun logs"
           tkn pipelinerun logs $PIPELINE_RUN_NAME --follow
@@ -269,9 +271,9 @@ jobs:
 
       - name: Create Tekton Triggers EventListener, Trigger Secret, ServiceAccount/RoleBinding/ClusterRoleBinding
         run: |
-          kubectl apply -f tekton-ci-config/triggers/serviceaccount-rb-crb.yml
-          kubectl apply -f tekton-ci-config/triggers/tekton-trigger-secret.yml
-          kubectl apply -f tekton-ci-config/triggers/gitlab-push-listener.yml
+          kubectl apply -f triggers/serviceaccount-rb-crb.yml
+          kubectl apply -f triggers/tekton-trigger-secret.yml
+          kubectl apply -f triggers/gitlab-push-listener.yml
 
       - name: Expose Tekton Triggers EventListener via Ingress & testdrive Trigger
         run: |
@@ -279,7 +281,7 @@ jobs:
           kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.34.1/deploy/static/provider/cloud/deploy.yaml
 
           echo "--- Apply Tekton EventListener Ingress"
-          kubectl apply -f tekton-ci-config/triggers/tekton-eventlistener-ingress.yml
+          kubectl apply -f triggers/tekton-eventlistener-ingress.yml
 
           echo "--- Wait until Ingress url is present (see https://stackoverflow.com/a/70108500/4964553)"
           until kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
@@ -295,6 +297,6 @@ jobs:
           -H 'X-GitLab-Token: 1234567' \
           -H 'X-Gitlab-Event: Push Hook' \
           -H 'Content-Type: application/json' \
-          --data-binary "@tekton-ci-config/triggers/gitlab-push-test-event.json" \
+          --data-binary "@triggers/gitlab-push-test-event.json" \
           $TEKTON_EVENTLISTENER_INGRESS_HOST
 
