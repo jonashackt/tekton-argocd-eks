@@ -19,9 +19,19 @@ spec:
             - name: eventTypes
               value:
                 - "Push Hook"
+        - name: "split-ref-heads-from-branch-name"
+          ref:
+            name: cel
+          params:
+            - name: "overlays"
+              value:
+                - key: branch_name
+                  expression: "body.ref.split('/')[2]"
       bindings:
         - name: gitrevision
           value: $(body.checkout_sha)
+        - name: gitbranch
+          value: $(extensions.branch_name)
         - name: gitrepositoryurl
           value: $(body.repository.git_http_url)
         - name: gitrepository_pathonly
@@ -32,6 +42,7 @@ spec:
         spec:
           params:
             - name: gitrevision
+            - name: gitbranch
             - name: gitrepositoryurl
             - name: gitrepository_pathonly
             - name: project_name
@@ -77,6 +88,8 @@ spec:
                     value: $(tt.params.project_name)
                   - name: SOURCE_REVISION
                     value: $(tt.params.gitrevision)
+                  - name: SOURCE_BRANCH
+                    value: $(tt.params.gitbranch)
                   - name: CONFIG_URL
                     value: "$(tt.params.gitrepositoryurl)-config"
                   - name: CONFIG_REVISION
