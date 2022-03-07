@@ -3025,6 +3025,79 @@ kubectl create secret generic argocd-env-secret \
 
 
 
+# Deploy application feature-branch separated
+
+Let's add a feature branch name based deployment in ArgoCD - ideally through namespaces. If we have a look at our app https://gitlab.com/jonashackt/microservice-api-spring-boot/ and assume one creates a new feature branch called `greatfeature`, we want our app to be deployed in a separate Kubernetes Deployment & Service named `greatfeature`.
+
+So how do we accomplish this?
+
+
+
+### Extract the branch name in the Tekton Triggers EventListener using the CEL interceptor
+
+In our full Tekton / Argo architecture we have the Tekton Triggers EventListener first. Here we need to extract the `branch name` from the GitLab WebHook event json (we have an example in [gitlab-push-test-event.json](triggers/gitlab-push-test-event.json)). The `branch name` could be found in `ref` field:
+
+```json
+{
+  "object_kind": "push",
+  "event_name": "push",
+  "before": "5bbc8580432fc7a16f50be27eb513db42aad0860",
+  "after": "c25a74c8f919a72e3f00928917dc4ab2944ab061",
+  "ref": "refs/heads/greatfeature",
+  "checkout_sha": "c25a74c8f919a72e3f00928917dc4ab2944ab061",
+...
+  "project": {
+    "id": 30444286,
+    "name": "microservice-api-spring-boot",
+    "description": "Forked from https://github.com/jonashackt/microservice-api-spring-boot",
+    "web_url": "https://gitlab.com/jonashackt/microservice-api-spring-boot",
+...
+```
+
+Since the `ref` field includes `refs/heads/` inside the string we need to somehow strip these out. Therefore we can use the `CEL` interceptor https://tekton.dev/vault/triggers-main/interceptors/#cel-interceptors in our Tekton Triggers configuration:
+
+> CEL Interceptors support overlays, which are CEL expressions that Tekton Triggers adds to the event payload in the top-level extensions field. overlays are accessible from TriggerBindings.
+
+Let's add the interceptor in our [gitlab-push-listener.yml](triggers/gitlab-push-listener.yml):
+
+```yaml
+...
+  triggers:
+    - name: gitlab-push-events-trigger
+      interceptors:
+        - name: "verify-gitlab-payload"
+          ref:
+            name: "gitlab"
+          ...
+        - name: "split-ref-heads-from-branch-name"
+          ref:
+            name: cel
+          params:
+            - name: "overlays"
+              value:
+                - key: branch_name
+                  expression: "body.ref.split('/')[2]"
+...
+```
+
+Now inside the `bindings` configuration we can access the CEL splitted `branch_name` via `$(extensions.branch_name)` instead of using the already known `$(body.ref)` notation:
+
+```yaml
+...
+      bindings:
+        - name: gitrevision
+          value: $(body.checkout_sha)
+        - name: gitbranch
+          value: $(extensions.branch_name)
+...
+```
+
+Also don't forget to add a new parameter `gitbranch` to the Template and use it as a parameter for the `PipelineRun` (like `SOURCE_BRANCH`).
+
+
+
+
+
 
 # Ideas
 
