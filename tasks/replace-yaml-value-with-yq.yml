@@ -1,0 +1,37 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: replace-yaml-value-with-yq
+spec:
+  workspaces:
+    - name: source
+      description: A workspace that contains the file which need to be dumped.
+  params:
+    - name: YQ_EXPRESSIONS
+      type: array
+      description: "The yq expression yaml selector to choose a key for replacement like .spec.template.spec.containers[0].image = \"$(params.IMAGE):$(params.SOURCE_REVISION)\""
+    - name: FILE_PATH
+      description: The file path relative to the workspace dir.
+    - name: YQ_VERSION
+      description: Version of https://github.com/mikefarah/yq
+      default: v4.2.0
+  steps:
+    - name: substitute-with-yq
+      image: alpine
+      workingDir: $(workspaces.source.path)
+      args: ["$(params.YQ_EXPRESSIONS[*])"]
+      script: |
+        echo "--- Download yq & add to path"
+        wget https://github.com/mikefarah/yq/releases/download/$(params.YQ_VERSION)/yq_linux_amd64 -O /usr/bin/yq
+        chmod +x /usr/bin/yq
+
+        echo "--- Run yq expressions"
+        for expression in "$@"
+        do
+          yq e "$expression" -i $(params.FILE_PATH)
+        done
+
+        echo "--- Show file with replacement"
+        cat $(params.FILE_PATH)
+      resources: {}
+

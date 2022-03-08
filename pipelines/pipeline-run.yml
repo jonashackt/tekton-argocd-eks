@@ -34,6 +34,8 @@ spec:
       value: microservice-api-spring-boot
     - name: SOURCE_REVISION
       value: 3c4131f8566ef157244881bacc474543ef96755d
+    - name: SOURCE_BRANCH
+      value: trigger-tekton-via-webhook
     - name: CONFIG_URL
       value: https://gitlab.com/jonashackt/microservice-api-spring-boot-config.git
     - name: CONFIG_REVISION

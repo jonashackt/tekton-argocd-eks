@@ -225,7 +225,7 @@ jobs:
           kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/maven/0.2/maven.yaml
           kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/yq/0.3/yq.yaml
           kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/git-cli/0.3/git-cli.yaml
-          kubectl apply -f tasks/replace-image-name-with-yq.yml
+          kubectl apply -f tasks/replace-yaml-value-with-yq.yml
           kubectl apply -f tasks/argocd-task-app-create.yml
 
       - name: Create Secrets for GitLab Container Registry & Repository access & apply buildpacks PVC, ServiceAccount & Pipeline
