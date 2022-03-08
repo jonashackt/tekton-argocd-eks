@@ -3096,6 +3096,46 @@ Also don't forget to add a new parameter `gitbranch` to the Template and use it 
 
 
 
+### Create or update feature-branch in application configuration repository
+
+We need to make sure the feature-branch is present or created inside our application configuration repository, which should contain the freshly replaced `Deployment` and `Service` manifests.
+
+Because our ArgoCD deployment environments are based on these branches. Therefore create a new `git-cli` based Task which creates a new branch - or uses the already existing one - prior to our manifests changes.
+
+If the branch already exists, we need to first do a `git fetch` from origin - otherwise we get the following error:
+
+```shell
+error: pathspec 'your-branch-name-here' did not match any file(s) known to git
+```
+
+If the branch DOES NOT exits, we need to create a new branch using `git checkout`. Both can be accomplished using the `||` operator:
+
+```shell
+git fetch origin "$(params.SOURCE_BRANCH)" && git checkout "$(params.SOURCE_BRANCH)" || git checkout -b "$(params.SOURCE_BRANCH)"
+```
+
+The full Task `switch-config-repository-branch` using `git-cli` in the [pipeline.yml](pipelines/pipeline.yml) looks like this:
+
+```yaml
+    - name: switch-config-repository-branch
+      taskRef:
+        name: git-cli
+      runAfter:
+        - fetch-config-repository
+      workspaces:
+        - name: source
+          workspace: config-workspace
+      params:
+        - name: GIT_USER_NAME
+          value: "tekton"
+        - name: GIT_USER_EMAIL
+          value: "tekton@eks.io"
+        - name: GIT_SCRIPT
+          value: |
+            git fetch origin "$(params.SOURCE_BRANCH)" && git checkout "$(params.SOURCE_BRANCH)" || git checkout -b "$(params.SOURCE_BRANCH)"
+```
+
+
 ### Add branch name in Deployment & Service (metadata.name, spec.selector.matchLabels.branch, spec.template.metadata.labels.branch, spec.selector.branch) 
 
 Now that we have our `branch name` extracted via Tekton Triggers CEL interceptor and available for the Pipeline as a parameter, we should add it to our application's `Deployment` and `Service` manifests.
@@ -3194,6 +3234,67 @@ spec:
         cat $(params.FILE_PATH)
       resources: {}
 ```
+
+
+### Push files to feature-branch in the application configuration repository 
+
+We already made sure the feature-branch is present or created inside our application configuration repository. Now we need to push the freshly replaced `Deployment` and `Service` manifests to the branch also.
+
+Because our ArgoCD deployment environments are based on these branches. Therefore we enhance our `git-cli` task to push to the branch via `git push --set-upstream origin "$(params.SOURCE_BRANCH)"`:
+
+```yaml
+    - name: commit-and-push-to-config-repo
+      taskRef:
+        name: git-cli
+      runAfter:
+        - replace-service-name-branch
+      workspaces:
+        - name: source
+          workspace: config-workspace
+      params:
+        - name: GIT_USER_NAME
+          value: "tekton"
+        - name: GIT_USER_EMAIL
+          value: "tekton@eks.io"
+        - name: GIT_SCRIPT
+          value: |
+            git status
+            git add .
+            git commit -m "Update to $(params.IMAGE):$(params.SOURCE_REVISION) on branch $(params.SOURCE_BRANCH)" && git push --set-upstream origin "$(params.SOURCE_BRANCH)" --force
+```
+
+### Adjust ArgoCD parameters for feature-branch deployment
+
+The ArgoCD application-name should contain the feature-branch with `"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)"`. Also the `config-revision` should use the`$(params.SOURCE_BRANCH)` parameter. 
+
+```yaml
+    - name: argo-create-app-sync-wait
+      taskRef:
+        name: argocd-task-create-sync-and-wait
+      runAfter:
+        - commit-and-push-to-config-repo
+      params:
+        - name: application-name
+          value: "$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)"
+        - name: config-repository
+          value: "$(params.CONFIG_URL)"
+        - name: config-path
+          value: deployment
+        - name: config-revision
+          value: "$(params.SOURCE_BRANCH)"
+        - name: destination-namespace
+          value: default
+        - name: argo-appproject
+          value: apps2deploy
+```
+
+This will lead to an `argocd app create` inside our [argocd-task-app-create.yml](tasks/argocd-task-app-create.yml) that uses the correct `name` and `--revision`.
+
+Also we need to add 2 configuration flags: 
+
+* `--upsert`: To be able to also upgrade already existing applications (`Allows to override application with the same name even if supplied application spec is different from existing spec`) 
+* `--auto-prune`: To automatically delete apps whose feature-branch doesn't exist in the application configuration repository anymore (`Set automatic pruning when sync is automated`)
+
 
 Now if we run our Pipeline using different branches in GitLab, we should see our application getting deployed multiple times:
 

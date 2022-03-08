@@ -33,7 +33,7 @@ spec:
     - name: PROJECT_NAME
       value: microservice-api-spring-boot
     - name: SOURCE_REVISION
-      value: 3c4131f8566ef157244881bacc474543ef96755d
+      value: 83eee2ee022cfd0b36e0ada4e1f0e973c426fb99
     - name: SOURCE_BRANCH
       value: trigger-tekton-via-webhook
     - name: CONFIG_URL

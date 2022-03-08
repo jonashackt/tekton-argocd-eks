@@ -24,9 +24,6 @@ spec:
       default: main
     - name: CONFIG_URL
       description: The git repo's matching config repo url.
-    - name: CONFIG_REVISION
-      description: The branch, tag or SHA to checkout.
-      default: ""
     - name: GITLAB_HOST
       description: The GitLab instance to report the status to
       default: "gitlab.com"
@@ -123,13 +120,30 @@ spec:
         - name: url
           value: "$(params.CONFIG_URL)"
         - name: revision
-          value: "$(params.CONFIG_REVISION)"
+          value: "main"
+
+    - name: switch-config-repository-branch
+      taskRef:
+        name: git-cli
+      runAfter:
+        - fetch-config-repository
+      workspaces:
+        - name: source
+          workspace: config-workspace
+      params:
+        - name: GIT_USER_NAME
+          value: "tekton"
+        - name: GIT_USER_EMAIL
+          value: "tekton@eks.io"
+        - name: GIT_SCRIPT
+          value: |
+            git fetch origin "$(params.SOURCE_BRANCH)" && git checkout "$(params.SOURCE_BRANCH)" || git checkout -b "$(params.SOURCE_BRANCH)"
 
     - name: replace-deployment-name-branch-image
       taskRef:
         name: replace-yaml-value-with-yq
       runAfter:
-        - fetch-config-repository
+        - switch-config-repository-branch
       workspaces:
         - name: source
           workspace: config-workspace
@@ -174,10 +188,9 @@ spec:
           value: "tekton@eks.io"
         - name: GIT_SCRIPT
           value: |
-            git checkout -b "$(params.CONFIG_REVISION)"
             git status
             git add .
-            git commit -m "Update to $(params.IMAGE):$(params.SOURCE_REVISION)" && git push --set-upstream origin "$(params.CONFIG_REVISION)" --force
+            git commit -m "Update to $(params.IMAGE):$(params.SOURCE_REVISION) on branch $(params.SOURCE_BRANCH)" && git push --set-upstream origin "$(params.SOURCE_BRANCH)" --force
 
     - name: argo-create-app-sync-wait
       taskRef:
@@ -192,7 +205,7 @@ spec:
         - name: config-path
           value: deployment
         - name: config-revision
-          value: "$(params.CONFIG_REVISION)"
+          value: "$(params.SOURCE_BRANCH)"
         - name: destination-namespace
           value: default
         - name: argo-appproject

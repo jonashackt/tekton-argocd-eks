@@ -91,6 +91,6 @@ spec:
                   - name: SOURCE_BRANCH
                     value: $(tt.params.gitbranch)
                   - name: CONFIG_URL
-                    value: "$(tt.params.gitrepositoryurl)-config"
+                    value: "http://gitlab.com/$(tt.params.gitrepository_pathonly)-config.git"
                   - name: CONFIG_REVISION
                     value: argocd
