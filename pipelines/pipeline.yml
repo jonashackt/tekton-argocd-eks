@@ -19,6 +19,9 @@ spec:
     - name: SOURCE_REVISION
       description: The branch, tag or SHA to checkout.
       default: ""
+    - name: SOURCE_BRANCH
+      description: The exact branch name.
+      default: main
     - name: CONFIG_URL
       description: The git repo's matching config repo url.
     - name: CONFIG_REVISION
@@ -122,25 +125,45 @@ spec:
         - name: revision
           value: "$(params.CONFIG_REVISION)"
 
-    - name: replace-config-image-name
+    - name: replace-deployment-name-branch-image
       taskRef:
-        name: replace-image-name-with-yq
+        name: replace-yaml-value-with-yq
       runAfter:
         - fetch-config-repository
       workspaces:
         - name: source
           workspace: config-workspace
       params:
-        - name: IMAGE_NAME
-          value: "$(params.IMAGE):$(params.SOURCE_REVISION)"
+        - name: YQ_EXPRESSIONS
+          value:
+            - ".metadata.name = \"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)\""
+            - ".spec.template.spec.containers[0].image = \"$(params.IMAGE):$(params.SOURCE_REVISION)\""
+            - ".spec.selector.matchLabels.branch = \"$(params.SOURCE_BRANCH)\""
+            - ".spec.template.metadata.labels.branch = \"$(params.SOURCE_BRANCH)\""
         - name: FILE_PATH
           value: "./deployment/deployment.yml"
+
+    - name: replace-service-name-branch
+      taskRef:
+        name: replace-yaml-value-with-yq
+      runAfter:
+        - replace-deployment-name-branch-image
+      workspaces:
+        - name: source
+          workspace: config-workspace
+      params:
+        - name: YQ_EXPRESSIONS
+          value:
+            - ".metadata.name = \"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)\""
+            - ".spec.selector.branch = \"$(params.SOURCE_BRANCH)\""
+        - name: FILE_PATH
+          value: "./deployment/service.yml"
 
     - name: commit-and-push-to-config-repo
       taskRef:
         name: git-cli
       runAfter:
-        - replace-config-image-name
+        - replace-service-name-branch
       workspaces:
         - name: source
           workspace: config-workspace
@@ -163,7 +186,7 @@ spec:
         - commit-and-push-to-config-repo
       params:
         - name: application-name
-          value: "$(params.PROJECT_NAME)"
+          value: "$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)"
         - name: config-repository
           value: "$(params.CONFIG_URL)"
         - name: config-path

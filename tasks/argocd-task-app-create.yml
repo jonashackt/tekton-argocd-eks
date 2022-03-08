@@ -46,7 +46,7 @@ spec:
         if [ -z "$ARGOCD_AUTH_TOKEN" ]; then
           yes | argocd login "$ARGOCD_SERVER" --username="$ARGOCD_USERNAME" --password="$ARGOCD_PASSWORD";
         fi
-        argocd app create "$(params.application-name)" --repo "$(params.config-repository)" --path "$(params.config-path)" --project "$(params.argo-appproject)" --dest-server https://kubernetes.default.svc --dest-namespace "$(params.destination-namespace)" --revision "$(params.config-revision)" --sync-policy auto "$(params.flags)"
+        argocd app create "$(params.application-name)" --repo "$(params.config-repository)" --path "$(params.config-path)" --project "$(params.argo-appproject)" --dest-server https://kubernetes.default.svc --dest-namespace "$(params.destination-namespace)" --revision "$(params.config-revision)" --upsert --sync-policy auto "$(params.flags)"
         argocd app sync "$(params.application-name)" --revision "$(params.config-revision)" "$(params.flags)"
         argocd app wait "$(params.application-name)" --health "$(params.flags)"
       envFrom:

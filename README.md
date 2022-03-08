@@ -3096,6 +3096,111 @@ Also don't forget to add a new parameter `gitbranch` to the Template and use it 
 
 
 
+### Add branch name in Deployment & Service (metadata.name, spec.selector.matchLabels.branch, spec.template.metadata.labels.branch, spec.selector.branch) 
+
+Now that we have our `branch name` extracted via Tekton Triggers CEL interceptor and available for the Pipeline as a parameter, we should add it to our application's `Deployment` and `Service` manifests.
+
+Therefore our [replace-image-name-with-yq.yml](tasks/replace-yaml-value-with-yq.yml) needs to be redesigned, since right now it only replaces the `image` tag. So first rename it to `replace-yaml-value-with-yq.yml` and then we may start in our [pipeline.yml](pipelines/pipeline.yml) to see what interface our task should have:
+
+```yaml
+   - name: replace-deployment-name-branch-image
+      taskRef:
+        name: replace-yaml-value-with-yq
+      runAfter:
+        - fetch-config-repository
+      workspaces:
+        - name: source
+          workspace: config-workspace
+      params:
+        - name: YQ_EXPRESSIONS
+          value:
+            - ".metadata.name = \"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)\""
+            - ".spec.template.spec.containers[0].image = \"$(params.IMAGE):$(params.SOURCE_REVISION)\""
+            - ".spec.selector.matchLabels.branch = \"$(params.SOURCE_BRANCH)\""
+            - ".spec.template.metadata.labels.branch = \"$(params.SOURCE_BRANCH)\""
+        - name: FILE_PATH
+          value: "./deployment/deployment.yml"
+```
+
+In our application configuration repository https://gitlab.com/jonashackt/microservice-api-spring-boot-config inside the `deployment/deployment.yml` we need to replace:
+
+* `metadata.name` to contain our `PROJECT_NAME-SOURCE_BRANCH` - for example  `microservice-api-spring-boot-trigger-tekton-via-webhook`
+* `spec.template.spec.containers[0].image` must contain the correct image name as already implemented
+* `spec.selector.matchLabels.branch` should contain the `branch name`
+* `spec.template.metadata.labels.branch` should also contain the `branch name`
+
+And in the application configuration repository's `deployment/service.yml` we need to replace:
+
+* `metadata.name` to contain `PROJECT_NAME-SOURCE_BRANCH` - just like in our Deployment
+* `spec.selector.branch` should contain the `branch name` - also very similar to our Deployment
+
+which inside our [pipeline.yml](pipelines/pipeline.yml) looks like:
+
+```yaml
+    - name: replace-service-name-branch
+      taskRef:
+        name: replace-yaml-value-with-yq
+      runAfter:
+        - replace-deployment-name-branch-image
+      workspaces:
+        - name: source
+          workspace: config-workspace
+      params:
+        - name: YQ_EXPRESSIONS
+          value:
+            - ".metadata.name = \"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)\""
+            - ".spec.selector.branch = \"$(params.SOURCE_BRANCH)\""
+        - name: FILE_PATH
+          value: "./deployment/service.yml"
+```
+
+Therefore the task [replace-image-name-with-yq.yml](tasks/replace-yaml-value-with-yq.yml) was redesigned to support multiple yq expressions as array list:
+
+```yaml
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: replace-yaml-value-with-yq
+spec:
+  workspaces:
+    - name: source
+      description: A workspace that contains the file which need to be dumped.
+  params:
+    - name: YQ_EXPRESSIONS
+      type: array
+      description: "The yq expression yaml selector to choose a key for replacement like .spec.template.spec.containers[0].image = \"$(params.IMAGE):$(params.SOURCE_REVISION)\""
+    - name: FILE_PATH
+      description: The file path relative to the workspace dir.
+    - name: YQ_VERSION
+      description: Version of https://github.com/mikefarah/yq
+      default: v4.2.0
+  steps:
+    - name: substitute-with-yq
+      image: alpine
+      workingDir: $(workspaces.source.path)
+      args: ["$(params.YQ_EXPRESSIONS[*])"]
+      script: |
+        echo "--- Download yq & add to path"
+        wget https://github.com/mikefarah/yq/releases/download/$(params.YQ_VERSION)/yq_linux_amd64 -O /usr/bin/yq
+        chmod +x /usr/bin/yq
+
+        echo "--- Run yq expressions"
+        for expression in "$@"
+        do
+          yq e "$expression" -i $(params.FILE_PATH)
+        done
+
+        echo "--- Show file with replacement"
+        cat $(params.FILE_PATH)
+      resources: {}
+```
+
+Now if we run our Pipeline using different branches in GitLab, we should see our application getting deployed multiple times:
+
+![argo-tekton-feature-branch-deployment](screenshots/argo-tekton-feature-branch-deployment.png)
+
+
+
 
 
 
