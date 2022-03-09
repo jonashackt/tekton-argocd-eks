@@ -3342,8 +3342,10 @@ We do all this right inside our GitHub Actions workflow [provision.yml](.github/
           echo "--- Install Traefik via Helm (which is already installed in GitHub Actions environment https://github.com/actions/virtual-environments)
           helm repo add traefik https://helm.traefik.io/traefik
           helm repo update
-          helm install traefik traefik/traefik
+          helm upgrade -i traefik traefik/traefik
 ```
+
+But instead of `helm install traefik traefik/traefik` we use `helm upgrade -i traefik traefik/traefik` to prevent the error `Error: INSTALLATION FAILED: cannot re-use a name that is still in use`(see https://stackoverflow.com/a/70465191/4964553).
 
 Now Traefik is already deployed and we can see it's Service (aka the Traefik Ingress Controller) in k9s for example:
 
@@ -3397,8 +3399,11 @@ spec:
 
 Apply it with `kubectl apply -f traefik-ingress-routes.yml`
 
+Finally use a REST client like Postman to access our Service:
 
+![traefik-postman-first-ingressroute-service-call](screenshots/traefik-postman-first-ingressroute-service-call.png)
 
+You need to provide the `Host:microservice-api-spring-boot-main` header in your request in order to make the call work.
 
 
 
