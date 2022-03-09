@@ -3411,6 +3411,14 @@ You need to provide the `Host:microservice-api-spring-boot-main` header in your 
 
 
 
+#### ArgoCD Dasboard as Traefik IngressRoute
+
+https://argo-cd.readthedocs.io/en/stable/operator-manual/ingress/#ingressroute-crd
+
+
+
+
+
 # Ideas
 
 https://hub.tekton.dev/tekton/task/create-gitlab-release
