@@ -3354,12 +3354,21 @@ Now Traefik is already deployed and we can see it's Service (aka the Traefik Ing
 We also directly expose the Traefik url as GitHub Actions Environment:
 
 ```yaml
+    environment:
+      name: traefik-eks-url
+      url: ${{ steps.traefik-expose.outputs.traefik_url }}
+
+...
+
       - name: Expose Traefik url as GitHub environment
+        id: traefik-expose
         run: |
           echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
           until kubectl get service/traefik -n default --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
-          echo "::set-output name=traefik_url::$(kubectl get service traefik -n default --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
 
+          TRAEFIK_URL="http://$(kubectl get service traefik -n default --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+          echo "All Services should be accessible through Traefik Ingress at $TRAEFIK_URL - creating GitHub Environment"
+          echo "::set-output name=traefik_url::$TRAEFIK_URL"
 ```
 
 
