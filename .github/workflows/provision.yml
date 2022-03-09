@@ -15,7 +15,7 @@ jobs:
     # Create an GitHub environment referencing our EKS cluster endpoint
     environment:
       name: traefik-eks-url
-      url: ${{ steps.pulumi-up.outputs.traefik_url }}
+      url: ${{ steps.traefik-expose.outputs.traefik_url }}
       # using outputs for providing the Pulumi created kubeconfig to subsequent jobs
       # see https://stackoverflow.com/a/61236803/4964553
       # & see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#jobsjob_idoutputs
@@ -74,6 +74,7 @@ jobs:
           helm upgrade -i traefik traefik/traefik
 
       - name: Expose Traefik url as GitHub environment
+        id: traefik-expose
         run: |
           echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
           until kubectl get service/traefik -n default --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
