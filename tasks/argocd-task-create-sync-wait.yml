@@ -1,7 +1,7 @@
 apiVersion: tekton.dev/v1beta1
 kind: Task
 metadata:
-  name: argocd-task-create-sync-and-wait
+  name: argocd-task-create-sync-wait
   labels:
     app.kubernetes.io/version: "0.2"
   annotations:

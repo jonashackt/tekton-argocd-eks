@@ -29,7 +29,7 @@ spec:
       default: "gitlab.com"
     - name: TEKTON_DASHBOARD_HOST
       description: The Tekton Dashboard URL for the status reports in GitLab
-      default: "http://adfae510ff50e4949b7c7a5949099632-1408242414.eu-central-1.elb.amazonaws.com"
+      default: "http://a9852d9e8a6af4f759d2f4eb642ea7d7-1033845141.eu-central-1.elb.amazonaws.com"
 
   workspaces:
     - name: maven-repo-cache # Maven repository cahce, see https://developers.redhat.com/blog/2020/02/26/speed-up-maven-builds-in-tekton-pipelines#run_a_maven_pipeline
@@ -194,7 +194,7 @@ spec:
 
     - name: argo-create-app-sync-wait
       taskRef:
-        name: argocd-task-create-sync-and-wait
+        name: argocd-task-create-sync-wait
       runAfter:
         - commit-and-push-to-config-repo
       params:

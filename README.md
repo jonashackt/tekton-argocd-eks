@@ -3302,6 +3302,107 @@ Now if we run our Pipeline using different branches in GitLab, we should see our
 
 
 
+# EKS/K8s Ingress for Services using Traefik v2
+
+Right now we have an Nginx-based Ingress for our Tekton Trigger EventListener, but the Tekton Dashboard and the ArgoCD server/dashboard are exposed as a simple Service of type `LoadBalancer`, who create multiple classic Elastic Load Balancers in AWS:
+
+![elastic-loadbalancers](screenshots/elastic-loadbalancers.png)
+
+In the section `LoadBalancer for every http service` of https://blog.pipetail.io/posts/2020-05-04-most-common-mistakes-k8s/ the problem is described as: 
+
+> resources might get expensive (external static ipv4 address, compute, per-second pricing ,...)
+
+To prevent that one could use the concept of an api gateway or Ingress in K8s terms. One of the best solutions out there is Traefik https://traefik.io/
+
+
+## Choose one of 3 ways to install & use Traefik in K8s
+
+As of the docs there are 3 ways on how to use Traefik in Kubernetes:
+
+1. IngressRoute Custom Resource Definition (CRD) for Kubernetes: https://doc.traefik.io/traefik/providers/kubernetes-crd/
+2. "old familiar" Ingress Controller as the Kubernetes Ingress provider: https://doc.traefik.io/traefik/providers/kubernetes-ingress/
+3. Experimental Kubernetes Gateway API: https://doc.traefik.io/traefik/providers/kubernetes-gateway/
+
+CRDs seem to be the current defacto standard way to extend Kubernetes (by extending the Kubernetes API): https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/
+
+So let's go with the IngressRoute CRD. There's also a full guide including Let's Encrypt in the Traefik docs https://doc.traefik.io/traefik/user-guides/crd-acme/
+
+
+#### Install Traefik as using KubernetesCRD
+
+Install Traefik via Helm: https://doc.traefik.io/traefik/getting-started/install-traefik/#use-the-helm-chart from it's chart at https://github.com/traefik/traefik-helm-chart:
+
+> This chart bootstraps Traefik version 2 as a Kubernetes ingress controller, using Custom Resources IngressRoute: https://docs.traefik.io/providers/kubernetes-crd/
+
+We do all this right inside our GitHub Actions workflow [provision.yml](.github/workflows/provision.yml):
+
+```yaml
+      - name: Install Traefik via Helm
+        run: |
+          echo "--- Install Traefik via Helm (which is already installed in GitHub Actions environment https://github.com/actions/virtual-environments)
+          helm repo add traefik https://helm.traefik.io/traefik
+          helm repo update
+          helm install traefik traefik/traefik
+```
+
+Now Traefik is already deployed and we can see it's Service (aka the Traefik Ingress Controller) in k9s for example:
+
+![traefik-k9s-service](screenshots/traefik-k9s-service.png)
+
+We also directly expose the Traefik url as GitHub Actions Environment:
+
+```yaml
+      - name: Expose Traefik url as GitHub environment
+        run: |
+          echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
+          until kubectl get service/traefik -n default --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
+          echo "::set-output name=traefik_url::$(kubectl get service traefik -n default --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+
+```
+
+
+Expose the dashboard with a local `kubectl port-forward` like this:
+
+```
+kubectl port-forward $(kubectl get pods --selector "app.kubernetes.io/name=traefik" --output=name) 9000:9000
+```
+
+And access it at http://127.0.0.1:9000/dashboard/
+
+
+#### IngressRoutes for Services to be available via Traefik
+
+Now let's configure the `IngressRoute` objects to get our Services accessible through Traefik
+
+https://doc.traefik.io/traefik/user-guides/crd-acme/#traefik-routers
+
+So start by creating our first `IngressRoute` definition - right now only statically to see it working inside [traefik-ingress-routes.yml](traefik-ingress-routes.yml):
+
+```yaml
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: microservice-api-spring-boot-ingressroute
+  namespace: default
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`microservice-api-spring-boot-main`) && PathPrefix(`/`)
+      kind: Rule
+      services:
+        - name: microservice-api-spring-boot-main
+          port: 80
+```
+
+Apply it with `kubectl apply -f traefik-ingress-routes.yml`
+
+
+
+
+
+
+
 
 
 
@@ -3363,27 +3464,11 @@ And more:
 --> Lighthouse Tekton integration misses JSON-payload proceeding to Tekton Pipelines/Tasks!
 
 
-## Tekton Triggers
 
-GitLab Webhooks --> trigger Tekton Triggers
-
-https://github.com/tektoncd/triggers
-
-
-#### No GUI info
+#### GitLab set-status without pipeline pollution
 
 https://github.com/tektoncd/experimental/tree/main/commit-status-tracker
 
-
-#### Deploy AWS Load Balancer Controller
-
-> The AWS ALB Ingress Controller has been rebranded to AWS Load Balancer Controller.
-
-https://aws.amazon.com/blogs/opensource/kubernetes-ingress-aws-alb-ingress-controller/
-
-Pulumi AWS Load Balancer Controller support: https://github.com/pulumi/pulumi-eks/issues/29
-
-https://pulumi.awsworkshop.io/50_eks_platform/30_deploy_ingress_controller.html
 
 
 #### Deploy your own Tekton Hub instance

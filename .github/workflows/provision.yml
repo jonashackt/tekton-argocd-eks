@@ -14,8 +14,8 @@ jobs:
       PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
     # Create an GitHub environment referencing our EKS cluster endpoint
     environment:
-      name: pulumi-eks-tekton-dev
-      url: ${{ steps.pulumi-up.outputs.eks_url }}
+      name: traefik-eks-url
+      url: ${{ steps.pulumi-up.outputs.traefik_url }}
       # using outputs for providing the Pulumi created kubeconfig to subsequent jobs
       # see https://stackoverflow.com/a/61236803/4964553
       # & see https://docs.github.com/en/actions/learn-github-actions/workflow-syntax-for-github-actions#jobsjob_idoutputs
@@ -60,11 +60,24 @@ jobs:
           echo "Create kubeconfig and supply it for depending Action jobs"
           pulumi stack output kubeconfig > ~/.kube/config
           echo "::set-output name=kubeconfig::$(pulumi stack output kubeconfig)"
-          echo "::set-output name=eks_url::$(pulumi stack output eksUrl)/api/hello"
+
         working-directory: ./eks-deployment
 
       - name: Try to connect to our EKS cluster using kubectl
         run: kubectl get nodes
+
+      - name: Install Traefik via Helm
+        run: |
+          echo "--- Install Traefik via Helm (which is already installed in GitHub Actions environment https://github.com/actions/virtual-environments)
+          helm repo add traefik https://helm.traefik.io/traefik
+          helm repo update
+          helm install traefik traefik/traefik
+
+      - name: Expose Traefik url as GitHub environment
+        run: |
+          echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
+          until kubectl get service/traefik -n default --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
+          echo "::set-output name=traefik_url::$(kubectl get service traefik -n default --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
 
   install-and-run-argocd-on-eks:
     runs-on: ubuntu-latest
@@ -226,7 +239,7 @@ jobs:
           kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/yq/0.3/yq.yaml
           kubectl apply -f https://raw.githubusercontent.com/tektoncd/catalog/main/task/git-cli/0.3/git-cli.yaml
           kubectl apply -f tasks/replace-yaml-value-with-yq.yml
-          kubectl apply -f tasks/argocd-task-app-create.yml
+          kubectl apply -f tasks/argocd-task-create-sync-wait.yml
 
       - name: Create Secrets for GitLab Container Registry & Repository access & apply buildpacks PVC, ServiceAccount & Pipeline
         run: |
