@@ -1,0 +1,14 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: microservice-api-spring-boot-ingressroute
+  namespace: default
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`microservice-api-spring-boot-main`) && PathPrefix(`/`)
+      kind: Rule
+      services:
+        - name: microservice-api-spring-boot-main
+          port: 80
