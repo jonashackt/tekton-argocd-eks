@@ -3453,6 +3453,8 @@ And apply it with `kubectl apply -f traefik-ingress-routes.yml`
 
 Now creating the Route53 record manually isn't what we should aim for. Instead let's use AWS CLI to do that for us.
 
+> see https://stackoverflow.com/questions/71438625/create-route53-hosted-zone-a-record-dynamically-from-ci-based-on-previously-prov/71438626#71438626
+
 Here's a starting point https://aws.amazon.com/premiumsupport/knowledge-center/alias-resource-record-set-route53-cli/
 
 But we don't want to do this using a static file like with the proposed `--change-batch file://sample.json` - instead we want to have it more dynamic so we can use a command inside our GitHub Actions workflow.
@@ -3524,6 +3526,39 @@ env:
 
 https://doc.traefik.io/traefik/routing/routers/#rule
 
+
+## Add Pipeline Task to create `IngressRoutes` dynamically based on build & deployed application
+
+The `traefik-ingress-route.yml` will also be added to our application configuration repository https://gitlab.com/jonashackt/microservice-api-spring-boot-config in the `deployment` directory. So now it can be also deployed using Argo.
+
+Now we simply use our [replace-yaml-value-with-yq.yml](tasks/replace-yaml-value-with-yq.yml) a 3rd time in our pipeline:
+
+```yaml
+    - name: replace-ingress-name-route
+      taskRef:
+        name: replace-yaml-value-with-yq
+      runAfter:
+        - replace-service-name-branch
+      workspaces:
+        - name: source
+          workspace: config-workspace
+      params:
+        - name: YQ_EXPRESSIONS
+          value:
+            - ".metadata.name = \"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)-ingressroute\""
+            - ".spec.routes[0].match = \"Host(`$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH).$(params.TRAEFIK_DOMAIN)`)\""
+            - ".spec.routes[0].services[0].name = \"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)\""
+        - name: FILE_PATH
+          value: "./deployment/traefik-ingress-route.yml"
+```
+
+Now ArgoCD should deploy the Traefik `IngressRoute` which matches the Service and Branch name exactly to our cluster:
+
+![argocd-traefik-ingressroute-deployment](screenshots/argocd-traefik-ingressroute-deployment.png)
+
+Try to access the app after a successful pipeline run using your Browser:
+
+![traefik-route53-served-service](screenshots/traefik-route53-served-service.png)
 
 
 ## ArgoCD Dasboard as Traefik IngressRoute

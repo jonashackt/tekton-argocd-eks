@@ -7,7 +7,7 @@ spec:
   entryPoints:
     - web
   routes:
-    - match: Host(`microservice-api-spring-boot-main.tekton-argocd.de`) && PathPrefix(`/`)
+    - match: Host(`microservice-api-spring-boot-main.tekton-argocd.de`)
       kind: Rule
       services:
         - name: microservice-api-spring-boot-main

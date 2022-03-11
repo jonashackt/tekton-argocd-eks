@@ -30,6 +30,9 @@ spec:
     - name: TEKTON_DASHBOARD_HOST
       description: The Tekton Dashboard URL for the status reports in GitLab
       default: "http://a9852d9e8a6af4f759d2f4eb642ea7d7-1033845141.eu-central-1.elb.amazonaws.com"
+    - name: TRAEFIK_DOMAIN
+      description: The domain name where Traefik is configured to work behind an ELB.
+      default: tekton-argocd.de
 
   workspaces:
     - name: maven-repo-cache # Maven repository cahce, see https://developers.redhat.com/blog/2020/02/26/speed-up-maven-builds-in-tekton-pipelines#run_a_maven_pipeline
@@ -173,11 +176,28 @@ spec:
         - name: FILE_PATH
           value: "./deployment/service.yml"
 
+    - name: replace-ingress-name-route
+      taskRef:
+        name: replace-yaml-value-with-yq
+      runAfter:
+        - replace-service-name-branch
+      workspaces:
+        - name: source
+          workspace: config-workspace
+      params:
+        - name: YQ_EXPRESSIONS
+          value:
+            - ".metadata.name = \"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)-ingressroute\""
+            - ".spec.routes[0].match = \"Host(`$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH).$(params.TRAEFIK_DOMAIN)`)\""
+            - ".spec.routes[0].services[0].name = \"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)\""
+        - name: FILE_PATH
+          value: "./deployment/traefik-ingress-route.yml"
+
     - name: commit-and-push-to-config-repo
       taskRef:
         name: git-cli
       runAfter:
-        - replace-service-name-branch
+        - replace-ingress-name-route
       workspaces:
         - name: source
           workspace: config-workspace
@@ -263,4 +283,4 @@ spec:
         - name: "CONTEXT"
           value: "tekton-pipeline"
         - name: "DESCRIPTION"
-          value: "Finished building your commit in Tekton"
+          value: "Finished building your commit in Tekton - access your app at http://$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH).$(params.TRAEFIK_DOMAIN)"
