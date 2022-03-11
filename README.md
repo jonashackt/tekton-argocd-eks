@@ -3328,7 +3328,7 @@ CRDs seem to be the current defacto standard way to extend Kubernetes (by extend
 So let's go with the IngressRoute CRD. There's also a full guide including Let's Encrypt in the Traefik docs https://doc.traefik.io/traefik/user-guides/crd-acme/
 
 
-#### Install Traefik as using KubernetesCRD
+## Install Traefik as KubernetesCRD with Helm
 
 Install Traefik via Helm: https://doc.traefik.io/traefik/getting-started/install-traefik/#use-the-helm-chart from it's chart at https://github.com/traefik/traefik-helm-chart:
 
@@ -3381,7 +3381,7 @@ kubectl port-forward $(kubectl get pods --selector "app.kubernetes.io/name=traef
 And access it at http://127.0.0.1:9000/dashboard/
 
 
-#### IngressRoutes for Services to be available via Traefik
+## IngressRoutes for Services to be available via Traefik
 
 Now let's configure the `IngressRoute` objects to get our Services accessible through Traefik
 
@@ -3416,11 +3416,89 @@ You need to provide the `Host:microservice-api-spring-boot-main` header in your 
 
 
 
+## Testing DNS-based Service availiability on AWS EKS with Traefik
+
+First create a Domain with AWS Route53 - this will take a while & you should finally receive a mail, that your domain was registered successfully (this took around 20mins for me).
+
+When we have our domain ready - for me this is tekton-argocd.de - we can configure the Route53 hosted zone with the correct records.
+
+See https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/routing-to-elb-load-balancer.html#routing-to-elb-load-balancer-configuring
+
+![route53-hostedzone-record](screenshots/route53-hostedzone-record.png)
+
+
+Let's test it by enhancing our `IngressRoute` inside [traefik-ingress-routes.yml](traefik-ingress-routes.yml):
+
+```yaml
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: microservice-api-spring-boot-ingressroute
+  namespace: default
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`microservice-api-spring-boot-main.tekton-argocd.de`) && PathPrefix(`/`)
+      kind: Rule
+      services:
+        - name: microservice-api-spring-boot-main
+          port: 80
+```
+
+And apply it with `kubectl apply -f traefik-ingress-routes.yml`
+
+
+## Automatically creating the Route53 A record based on the Traefik ELB in GitHub Actions
+
+Now creating the Route53 record manually isn't what we should aim for. Instead let's use AWS CLI to do that for us.
+
+```yaml
+      - name: Create or update Route53 hosted zone A record to point to ELB Traefik is configured to
+        run: |
+          echo "--- Obtaining the Route53 domain's hosted zone id"
+          ROUTE53_DOMAIN_HOSTED_ZONE_ID="$(aws route53 list-hosted-zones-by-name | jq --arg name "$ROUTE53_DOMAIN_NAME." -r '.HostedZones | .[] | select(.Name=="\($name)") | .Id')"
+
+          echo "--- Obtaining the ELB hosted zone id"
+          echo "Therefore cutting the ELB url from the traefik k8s Service using cut (see https://stackoverflow.com/a/29903172/4964553)
+          ELB_NAME="$(kubectl get service traefik -n default --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}' | cut -d "-" -f 1)"
+          echo "Extracting the hosted zone it using aws cli and jq (see https://stackoverflow.com/a/53230627/4964553)
+          ELB_HOSTED_ZONE_ID="$(aws elb describe-load-balancers | jq --arg name "$ELB_NAME" -r '.LoadBalancerDescriptions | .[] | select(.LoadBalancerName=="\($name)") | .CanonicalHostedZoneNameID')"
+
+          echo "--- Obtaining the Elastic Load Balancer url as the A records AliasTarget"
+          ELB_URL="$(kubectl get service traefik -n default --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+
+          echo "--- Creating or updating ('UPSERT') Route53 hosted zone A record to point to ELB Traefik (see https://aws.amazon.com/premiumsupport/knowledge-center/simple-resource-record-route53-cli/)"
+          echo "--- Creating Route53 hosted zone record (mind to wrap the variables in double quotes in order to get them evaluated, see https://stackoverflow.com/a/49228748/4964553)"
+          aws route53 change-resource-record-sets \
+            --hosted-zone-id $ROUTE53_DOMAIN_HOSTED_ZONE_ID \
+            --change-batch '
+            {
+              "Comment": "Create or update Route53 hosted zone A record to point to ELB Traefik is configured to"
+              ,"Changes": [{
+                "Action"              : "UPSERT"
+                ,"ResourceRecordSet"  : {
+                  "Name"              : "foobar.'"$ROUTE53_DOMAIN_NAME"'"
+                  ,"Type"             : "A"
+                  ,"AliasTarget": {
+                      "HostedZoneId": "'"$ELB_HOSTED_ZONE_ID"'",
+                      "DNSName": "dualstack.'"$ELB_URL"'",
+                      "EvaluateTargetHealth": true
+                  }
+                }
+              }]
+            }
+            '
+```
 
 
 
 
-#### ArgoCD Dasboard as Traefik IngressRoute
+https://doc.traefik.io/traefik/routing/routers/#rule
+
+
+
+## ArgoCD Dasboard as Traefik IngressRoute
 
 https://argo-cd.readthedocs.io/en/stable/operator-manual/ingress/#ingressroute-crd
 
