@@ -3472,7 +3472,7 @@ We also want to have an idempotent solution which we can run 1 or many times in 
               ,"Changes": [{
                 "Action"              : "UPSERT"
                 ,"ResourceRecordSet"  : {
-                  "Name"              : "foobar.'"$ROUTE53_DOMAIN_NAME"'"
+                  "Name"              : "*.'"$ROUTE53_DOMAIN_NAME"'"
                   ,"Type"             : "A"
                   ,"AliasTarget": {
                       "HostedZoneId": "'"$ELB_HOSTED_ZONE_ID"'",
@@ -3485,12 +3485,14 @@ We also want to have an idempotent solution which we can run 1 or many times in 
             '
 ```
 
+> Using variables inside the json provided to the `--change-batch` parameter, we need to use single quotes and open them up immediately after (also see https://stackoverflow.com/a/49228748/4964553)
+
 As you can see, we need to configure 4 variables to make this command run:
 
 1. `$ROUTE53_DOMAIN_HOSTED_ZONE_ID`: This is the hosted zone id of your Route53 domain you need to register before (the registration itself is a manual step)
-2. `$ROUTE53_DOMAIN_NAME`: Your Route53 registered domain name
+2. `$ROUTE53_DOMAIN_NAME`: Your Route53 registered domain name. As we want all routing to be done by Traefik, we can configure a wildcard record here using `*.$ROUTE53_DOMAIN_NAME`
 3. `$ELB_HOSTED_ZONE_ID`: [A different hosted zone id than your domain!](https://stackoverflow.com/a/59584444/4964553). This is the hosted zone id of the Elastic Load Balancer, which gets provisioned through the Traefik Service deployment (via Helm).
-4. `$ELB_URL`: The ELB url of the Traefik Service.
+4. `$ELB_URL`: The ELB url of the Traefik Service. We need to preface it with `dualstack.` in order to make it work (see https://docs.aws.amazon.com/Route53/latest/APIReference/API_AliasTarget.html)
 
 Obtaining all those variables isn't trivial. We can start with the Route53 domain name, we need to configure as a static GitHub Actions environment varialbe at the top of our [provision.yml](.github/workflows/provision.yml):
 

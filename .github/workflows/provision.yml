@@ -108,7 +108,7 @@ jobs:
               ,"Changes": [{
                 "Action"              : "UPSERT"
                 ,"ResourceRecordSet"  : {
-                  "Name"              : "foobar.'"$ROUTE53_DOMAIN_NAME"'"
+                  "Name"              : "*.'"$ROUTE53_DOMAIN_NAME"'"
                   ,"Type"             : "A"
                   ,"AliasTarget": {
                       "HostedZoneId": "'"$ELB_HOSTED_ZONE_ID"'",
