@@ -90,9 +90,9 @@ jobs:
           ROUTE53_DOMAIN_HOSTED_ZONE_ID="$(aws route53 list-hosted-zones-by-name | jq --arg name "$ROUTE53_DOMAIN_NAME." -r '.HostedZones | .[] | select(.Name=="\($name)") | .Id')"
 
           echo "--- Obtaining the ELB hosted zone id"
-          echo "Therefore cutting the ELB url from the traefik k8s Service using cut (see https://stackoverflow.com/a/29903172/4964553)
+          echo "Therefore cutting the ELB url from the traefik k8s Service using cut (see https://stackoverflow.com/a/29903172/4964553)"
           ELB_NAME="$(kubectl get service traefik -n default --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}' | cut -d "-" -f 1)"
-          echo "Extracting the hosted zone it using aws cli and jq (see https://stackoverflow.com/a/53230627/4964553)
+          echo "Extracting the hosted zone it using aws cli and jq (see https://stackoverflow.com/a/53230627/4964553)"
           ELB_HOSTED_ZONE_ID="$(aws elb describe-load-balancers | jq --arg name "$ELB_NAME" -r '.LoadBalancerDescriptions | .[] | select(.LoadBalancerName=="\($name)") | .CanonicalHostedZoneNameID')"
 
           echo "--- Obtaining the Elastic Load Balancer url as the A records AliasTarget"

@@ -3453,21 +3453,15 @@ And apply it with `kubectl apply -f traefik-ingress-routes.yml`
 
 Now creating the Route53 record manually isn't what we should aim for. Instead let's use AWS CLI to do that for us.
 
+Here's a starting point https://aws.amazon.com/premiumsupport/knowledge-center/alias-resource-record-set-route53-cli/
+
+But we don't want to do this using a static file like with the proposed `--change-batch file://sample.json` - instead we want to have it more dynamic so we can use a command inside our GitHub Actions workflow.
+
+The idea is derived from this so answer https://stackoverflow.com/a/49228748/4964553, where we can simply use the json snippet inline without an extra file.
+
+We also want to have an idempotent solution which we can run 1 or many times in our GitHub Actions CI. Therefore we use the `"Action" : "UPSERT"` (see https://aws.amazon.com/premiumsupport/knowledge-center/simple-resource-record-route53-cli/).
+
 ```yaml
-      - name: Create or update Route53 hosted zone A record to point to ELB Traefik is configured to
-        run: |
-          echo "--- Obtaining the Route53 domain's hosted zone id"
-          ROUTE53_DOMAIN_HOSTED_ZONE_ID="$(aws route53 list-hosted-zones-by-name | jq --arg name "$ROUTE53_DOMAIN_NAME." -r '.HostedZones | .[] | select(.Name=="\($name)") | .Id')"
-
-          echo "--- Obtaining the ELB hosted zone id"
-          echo "Therefore cutting the ELB url from the traefik k8s Service using cut (see https://stackoverflow.com/a/29903172/4964553)
-          ELB_NAME="$(kubectl get service traefik -n default --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}' | cut -d "-" -f 1)"
-          echo "Extracting the hosted zone it using aws cli and jq (see https://stackoverflow.com/a/53230627/4964553)
-          ELB_HOSTED_ZONE_ID="$(aws elb describe-load-balancers | jq --arg name "$ELB_NAME" -r '.LoadBalancerDescriptions | .[] | select(.LoadBalancerName=="\($name)") | .CanonicalHostedZoneNameID')"
-
-          echo "--- Obtaining the Elastic Load Balancer url as the A records AliasTarget"
-          ELB_URL="$(kubectl get service traefik -n default --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
-
           echo "--- Creating or updating ('UPSERT') Route53 hosted zone A record to point to ELB Traefik (see https://aws.amazon.com/premiumsupport/knowledge-center/simple-resource-record-route53-cli/)"
           echo "--- Creating Route53 hosted zone record (mind to wrap the variables in double quotes in order to get them evaluated, see https://stackoverflow.com/a/49228748/4964553)"
           aws route53 change-resource-record-sets \
@@ -3491,8 +3485,40 @@ Now creating the Route53 record manually isn't what we should aim for. Instead l
             '
 ```
 
+As you can see, we need to configure 4 variables to make this command run:
 
+1. `$ROUTE53_DOMAIN_HOSTED_ZONE_ID`: This is the hosted zone id of your Route53 domain you need to register before (the registration itself is a manual step)
+2. `$ROUTE53_DOMAIN_NAME`: Your Route53 registered domain name
+3. `$ELB_HOSTED_ZONE_ID`: [A different hosted zone id than your domain!](https://stackoverflow.com/a/59584444/4964553). This is the hosted zone id of the Elastic Load Balancer, which gets provisioned through the Traefik Service deployment (via Helm).
+4. `$ELB_URL`: The ELB url of the Traefik Service.
 
+Obtaining all those variables isn't trivial. We can start with the Route53 domain name, we need to configure as a static GitHub Actions environment varialbe at the top of our [provision.yml](.github/workflows/provision.yml):
+
+```yaml
+name: provision
+
+on: [push]
+
+env:
+  ...
+  ROUTE53_DOMAIN_NAME: tekton-argocd.de
+...
+
+      - name: Create or update Route53 hosted zone A record to point to ELB Traefik is configured to
+        run: |
+          echo "--- Obtaining the Route53 domain's hosted zone id"
+          ROUTE53_DOMAIN_HOSTED_ZONE_ID="$(aws route53 list-hosted-zones-by-name | jq --arg name "$ROUTE53_DOMAIN_NAME." -r '.HostedZones | .[] | select(.Name=="\($name)") | .Id')"
+
+          echo "--- Obtaining the ELB hosted zone id"
+          echo "Therefore cutting the ELB url from the traefik k8s Service using cut (see https://stackoverflow.com/a/29903172/4964553)"
+          ELB_NAME="$(kubectl get service traefik -n default --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}' | cut -d "-" -f 1)"
+          echo "Extracting the hosted zone it using aws cli and jq (see https://stackoverflow.com/a/53230627/4964553)"
+          ELB_HOSTED_ZONE_ID="$(aws elb describe-load-balancers | jq --arg name "$ELB_NAME" -r '.LoadBalancerDescriptions | .[] | select(.LoadBalancerName=="\($name)") | .CanonicalHostedZoneNameID')"
+
+          echo "--- Obtaining the Elastic Load Balancer url as the A records AliasTarget"
+          ELB_URL="$(kubectl get service traefik -n default --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+
+```
 
 https://doc.traefik.io/traefik/routing/routers/#rule
 
