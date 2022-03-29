@@ -3351,28 +3351,7 @@ Now Traefik is already deployed and we can see it's Service (aka the Traefik Ing
 
 ![traefik-k9s-service](screenshots/traefik-k9s-service.png)
 
-We also directly expose the Traefik url as GitHub Actions Environment:
-
-```yaml
-    environment:
-      name: traefik-eks-url
-      url: ${{ steps.traefik-expose.outputs.traefik_url }}
-
-...
-
-      - name: Expose Traefik url as GitHub environment
-        id: traefik-expose
-        run: |
-          echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
-          until kubectl get service/traefik -n default --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
-
-          TRAEFIK_URL="http://$(kubectl get service traefik -n default --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
-          echo "All Services should be accessible through Traefik Ingress at $TRAEFIK_URL - creating GitHub Environment"
-          echo "::set-output name=traefik_url::$TRAEFIK_URL"
-```
-
-
-Expose the dashboard with a local `kubectl port-forward` like this:
+You may temporarily expose the dashboard with a local `kubectl port-forward` like this (but we will create a nice domain later also):
 
 ```
 kubectl port-forward $(kubectl get pods --selector "app.kubernetes.io/name=traefik" --output=name) 9000:9000
@@ -3387,6 +3366,8 @@ Now let's configure the `IngressRoute` objects to get our Services accessible th
 
 https://doc.traefik.io/traefik/user-guides/crd-acme/#traefik-routers
 
+https://doc.traefik.io/traefik/routing/routers/#rule
+
 So start by creating our first `IngressRoute` definition - right now only statically to see it working inside [traefik-ingress-routes.yml](traefik-ingress-routes.yml):
 
 ```yaml
@@ -3399,7 +3380,7 @@ spec:
   entryPoints:
     - web
   routes:
-    - match: Host(`microservice-api-spring-boot-main`) && PathPrefix(`/`)
+    - match: Host(`microservice-api-spring-boot-main`)
       kind: Rule
       services:
         - name: microservice-api-spring-boot-main
@@ -3416,7 +3397,7 @@ You need to provide the `Host:microservice-api-spring-boot-main` header in your 
 
 
 
-## Testing DNS-based Service availiability on AWS EKS with Traefik
+## Testing DNS-based Service availability on AWS EKS with Traefik
 
 First create a Domain with AWS Route53 - this will take a while & you should finally receive a mail, that your domain was registered successfully (this took around 20mins for me).
 
@@ -3439,7 +3420,7 @@ spec:
   entryPoints:
     - web
   routes:
-    - match: Host(`microservice-api-spring-boot-main.tekton-argocd.de`) && PathPrefix(`/`)
+    - match: Host(`microservice-api-spring-boot-main.tekton-argocd.de`)
       kind: Rule
       services:
         - name: microservice-api-spring-boot-main
@@ -3524,7 +3505,65 @@ env:
 
 ```
 
-https://doc.traefik.io/traefik/routing/routers/#rule
+
+## Expose Traefik dashboard as traefik.tekton-argocd.de
+
+https://doc.traefik.io/traefik/operations/dashboard/
+
+As we now have our Route53 record configuration in place to access our apps, we can also create a nice access to our Traefik dashboard to avoid the need of a manually started local `port-forward`:
+
+https://doc.traefik.io/traefik/getting-started/install-traefik/#exposing-the-traefik-dashboard
+
+Therefore let't create a `IngressRoute` for the Traefik dashboard at [ingress/traefik-dashboard.yml](ingress/traefik-dashboard.yml):
+
+```yaml
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: dashboard
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`traefik.tekton-argocd.de`)
+      kind: Rule
+      services:
+        - name: api@internal
+          kind: TraefikService
+```
+
+Now install it with:
+
+```shell
+kubectl apply -f ingress/traefik-dashboard.yml
+```
+
+
+We also directly expose our nice Traefik url traefik.tekton-argocd.de as GitHub Actions Environment:
+
+```yaml
+    environment:
+      name: traefik-eks-url
+      url: ${{ steps.traefik-expose.outputs.traefik_url }}
+
+...
+
+      - name: Expose Traefik url as GitHub environment
+        id: traefik-expose
+        run: |
+          echo "--- Apply Traefik-ception IngressRule"
+          kubectl apply -f ingress/traefik-dashboard.yml
+          
+          echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
+          until kubectl get service/traefik -n default --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
+
+          TRAEFIK_URL="http://traefik.$ROUTE53_DOMAIN_NAME/dashboard"
+          echo "All Services should be accessible through Traefik Ingress at $TRAEFIK_URL - creating GitHub Environment"
+          echo "::set-output name=traefik_url::$TRAEFIK_URL"
+```
+
+Now Traefik should be accessible at http://traefik.tekton-argocd.de/dashboard/ also through our pipeline.
+
 
 
 ## Add Pipeline Task to create `IngressRoutes` dynamically based on build & deployed application
@@ -3561,7 +3600,10 @@ Try to access the app after a successful pipeline run using your Browser:
 ![traefik-route53-served-service](screenshots/traefik-route53-served-service.png)
 
 
-## ArgoCD Dasboard as Traefik IngressRoute
+
+
+
+## ArgoCD Dashboard as Traefik IngressRoute
 
 https://argo-cd.readthedocs.io/en/stable/operator-manual/ingress/#ingressroute-crd
 
