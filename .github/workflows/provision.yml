@@ -74,16 +74,6 @@ jobs:
           helm repo update
           helm upgrade -i traefik traefik/traefik
 
-      - name: Expose Traefik url as GitHub environment
-        id: traefik-expose
-        run: |
-          echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
-          until kubectl get service/traefik -n default --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
-
-          TRAEFIK_URL="http://$(kubectl get service traefik -n default --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
-          echo "All Services should be accessible through Traefik Ingress at $TRAEFIK_URL - creating GitHub Environment"
-          echo "::set-output name=traefik_url::$TRAEFIK_URL"
-
       - name: Create or update Route53 hosted zone A record to point to ELB Traefik is configured to
         run: |
           echo "--- Obtaining the Route53 domain's hosted zone id"
@@ -119,6 +109,19 @@ jobs:
               }]
             }
             '
+
+      - name: Expose Traefik url as GitHub environment
+        id: traefik-expose
+        run: |
+          echo "--- Apply Traefik-ception IngressRule"
+          kubectl apply -f ingress/traefik-dashboard.yml
+
+          echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
+          until kubectl get service/traefik -n default --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
+
+          TRAEFIK_URL="http://traefik.$ROUTE53_DOMAIN_NAME/dashboard"
+          echo "All Services should be accessible through Traefik Ingress at $TRAEFIK_URL - creating GitHub Environment"
+          echo "::set-output name=traefik_url::$TRAEFIK_URL"
 
   install-and-run-argocd-on-eks:
     runs-on: ubuntu-latest
