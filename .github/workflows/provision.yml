@@ -7,6 +7,9 @@ env:
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   AWS_DEFAULT_REGION: 'eu-central-1'
   ROUTE53_DOMAIN_NAME: tekton-argocd.de
+  TRAEFIK_DASHBOARD: http://traefik.$ROUTE53_DOMAIN_NAME
+  ARGOCD_DASHBOARD: argocd.$ROUTE53_DOMAIN_NAME
+  TEKTON_DASHBOARD: tekton.$ROUTE53_DOMAIN_NAME
 
 jobs:
   provision-eks-with-pulumi:
@@ -119,9 +122,7 @@ jobs:
           echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
           until kubectl get service/traefik -n default --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
 
-          TRAEFIK_URL="http://traefik.$ROUTE53_DOMAIN_NAME"
-          echo "All Services should be accessible through Traefik Ingress at $TRAEFIK_URL - creating GitHub Environment"
-          echo "::set-output name=traefik_url::$TRAEFIK_URL"
+          echo "All Services should be accessible through Traefik Ingress at $TRAEFIK_DASHBOARD - creating GitHub Environment"
 
   install-and-run-argocd-on-eks:
     runs-on: ubuntu-latest
@@ -153,7 +154,7 @@ jobs:
       - name: Expose ArgoCD Dashboard as GitHub environment
         id: dashboard-expose
         run: |
-          echo "--- Expose ArgoCD Dashboard via K8s Service"
+          echo "--- Expose ArgoCD Dashboard via Traefik IngressRoute"
           kubectl apply -f ingress/argocd-dashboard.yml
 
           echo "--- Create GitHub environment var"
@@ -241,14 +242,11 @@ jobs:
       - name: Expose Tekton Dashboard as GitHub environment
         id: dashboard-expose
         run: |
-          echo "--- Expose Tekton Dashboard via K8s Service"
-          kubectl apply -f tekton-dashboard-service.yml -n tekton-pipelines
-
-          echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
-          until kubectl get service/tekton-dashboard-external-svc-manual -n tekton-pipelines --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
+          echo "--- Expose Tekton Dashboard via Traefik IngressRoute"
+          kubectl apply -f ingress/tekton-dashboard.yml
 
           echo "--- Create GitHub environment var"
-          DASHBOARD_HOST="http://$(kubectl get service tekton-dashboard-external-svc-manual -n tekton-pipelines --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+          DASHBOARD_HOST="http://argocd.$ROUTE53_DOMAIN_NAME"
           echo "The Tekton dashboard is accessible at $DASHBOARD_HOST - creating GitHub Environment"
           echo "::set-output name=dashboard_host::$DASHBOARD_HOST"
 
