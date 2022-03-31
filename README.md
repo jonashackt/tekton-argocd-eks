@@ -2119,9 +2119,9 @@ In order to declaratively configure the ArgoCD configuration, [the ArgoCD docs h
 Adopting this to our use case, we need to switch our ArgoCD installation from simply using `kubectl apply -f` to a Kustomize-based installation. The ArgoCD docs also have [a section on how to do this](https://argo-cd.readthedocs.io/en/stable/operator-manual/installation/#kustomize). Here are the brief steps:
 
 
-#### Create a `argocd/installation` directory with a new file `kustomization.yaml`
+#### Create a `installation/argocd` directory with a new file `kustomization.yaml`
 
-We slightly enhance the `kustomization.yaml` proposed in the docs and create it inside [argocd/installation/kustomization.yaml](argocd/installation/kustomization.yaml):
+We slightly enhance the `kustomization.yaml` proposed in the docs and create it inside [installation/argocd/kustomization.yaml](installation/argocd/kustomization.yaml):
 
 ```yaml
 apiVersion: kustomize.config.k8s.io/v1beta1
@@ -2147,7 +2147,7 @@ we use the `patchesStrategicMerge` configuration key, which contains another new
 
 #### Create a new file `argocd-cmd-params-cm-patch.yml`**
 
-This new [argocd/installation/argocd-cmd-params-cm-patch.yml](argocd/installation/argocd-cmd-params-cm-patch.yml) only contains the configuration we want to change inside the ConfigMap `argocd-cmd-params-cm`:
+This new [installation/argocd/argocd-cmd-params-cm-patch.yml](installation/argocd/argocd-cmd-params-cm-patch.yml) only contains the configuration we want to change inside the ConfigMap `argocd-cmd-params-cm`:
 
 ```yaml
 apiVersion: v1
@@ -2164,7 +2164,7 @@ There's a separate `kustomize` CLI one can install e.g. via `brew install kustom
 
 ```shell
 kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -    
-kubectl apply -k argocd/installation
+kubectl apply -k installation/argocd
 ```
 
 As you can see we also need to make sure the namespace `argocd` is present before Kustomize can apply all the ArgoCD resources.
@@ -3415,7 +3415,7 @@ https://doc.traefik.io/traefik/user-guides/crd-acme/#traefik-routers
 
 https://doc.traefik.io/traefik/routing/routers/#rule
 
-So start by creating our first `IngressRoute` definition - right now only statically to see it working inside [traefik-ingress-routes.yml](traefik-ingress-routes.yml):
+So start by creating our first `IngressRoute` definition - right now only statically to see it working inside [traefik-application-ingress-routes.yml](ingress/traefik-application-ingress-routes.yml):
 
 ```yaml
 apiVersion: traefik.containo.us/v1alpha1
@@ -3434,7 +3434,7 @@ spec:
           port: 80
 ```
 
-Apply it with `kubectl apply -f traefik-ingress-routes.yml`
+Apply it with `kubectl apply -f ingress/traefik-application-ingress-routes.yml`
 
 Finally use a REST client like Postman to access our Service:
 
@@ -3455,7 +3455,7 @@ See https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/routing-to-elb-loa
 ![route53-hostedzone-record](screenshots/route53-hostedzone-record.png)
 
 
-Let's test it by enhancing our `IngressRoute` inside [traefik-ingress-routes.yml](traefik-ingress-routes.yml):
+Let's test it by enhancing our `IngressRoute` inside [traefik-application-ingress-routes.yml](ingress/traefik-application-ingress-routes.yml):
 
 ```yaml
 apiVersion: traefik.containo.us/v1alpha1
@@ -3474,7 +3474,7 @@ spec:
           port: 80
 ```
 
-And apply it with `kubectl apply -f traefik-ingress-routes.yml`
+And apply it with `kubectl apply -f ingress/traefik-application-ingress-routes.yml`
 
 
 ## Automatically creating the Route53 A record based on the Traefik ELB in GitHub Actions
@@ -3649,12 +3649,43 @@ Try to access the app after a successful pipeline run using your Browser:
 
 
 
+# Renovate should keep Tekton and Argo k8s manifests up-to-date
 
-## ArgoCD Dashboard as Traefik IngressRoute
+In order to enable Renovate to keep all our manifests up-to-date, we need a mechanism and a format renovate can read. 
 
-https://argo-cd.readthedocs.io/en/stable/operator-manual/ingress/#ingressroute-crd
+As we already use Kustomize to install and configure ArgoCD, we could use it to install all needed remote manifests for us. Kustomize is also supported by Renovate: https://docs.renovatebot.com/modules/manager/kustomize/
 
+Therefore the directory `installation` has been created and we have the following folder structure now:
 
+```
+├── argocd - here our ArgoCD instsallation and custom configuration is managed
+│   ├── argocd-cmd-params-cm-patch.yml
+│   └── kustomization.yaml
+├── tekton - all Tekton related components
+│   └── kustomization.yaml
+└── tekton-tasks - all needed Tekton Tasks (Hubs or local)
+    └── kustomization.yaml
+```
+
+Inside our GitHub Actions workflow [provision.yml](.github/workflows/provision.yml) Kustomize is used through `kubectl apply -k`:
+
+```
+      - name: Install ArgoCD
+        run: |
+          echo "--- Create argo namespace and install it"
+          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+          echo "--- Install & configure ArgoCD via Kustomize - see https://stackoverflow.com/a/71692892/4964553"
+          kubectl apply -k installation/argocd
+...
+      - name: Install Tekton Pipelines, Dashboard, Triggers
+        run: |
+          echo "--- Install Tekton Pipelines, Dashboard, Triggers via Kustomize"
+          kubectl apply -k installation/tekton
+...
+      - name: Install Tekton Hub & local Tasks via Kustomize
+        run: |
+          kubectl apply -k installation/tekton-tasks
+```
 
 
 
