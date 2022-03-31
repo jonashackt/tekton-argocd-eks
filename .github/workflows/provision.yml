@@ -223,7 +223,7 @@ jobs:
           echo "--- Checking connectivity to cluster"
           kubectl get nodes
 
-      - name: Install Tekton Pipelines, Dashboard, Triggers
+      - name: Install Tekton Pipelines, Dashboard, Triggers, Tasks
         run: |
           echo "--- Install Tekton Pipelines, Dashboard, Triggers via Kustomize"
           kubectl apply -k installation/tekton
