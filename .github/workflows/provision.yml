@@ -319,5 +319,5 @@ jobs:
           -H 'X-Gitlab-Event: Push Hook' \
           -H 'Content-Type: application/json' \
           --data-binary "@triggers/gitlab-push-test-event.json" \
-          $TEKTON_TRIGGER_GITLAB_LISTENER
+          http://gitlab-listener.$ROUTE53_DOMAIN_NAME
 
