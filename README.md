@@ -1181,7 +1181,7 @@ $TEKTON_TRIGGER_GITLAB_LISTENER
 Finally we can implement all this inside our GitHub Action workflow [.github/workflows/provision.yml](.github/workflows/provision.yml):
 
 ```yaml
-      - name: Expose Tekton Triggers EventListener via Ingress & testdrive Trigger
+      - name: Expose Tekton Triggers EventListener as Traefik IngressRoute & testdrive Trigger
         run: |
           echo "--- Apply Tekton EventListener Traefik IngressRoute"
           kubectl apply -f ingress/gitlab-listener.yml
@@ -1192,7 +1192,7 @@ Finally we can implement all this inside our GitHub Action workflow [.github/wor
           -H 'X-Gitlab-Event: Push Hook' \
           -H 'Content-Type: application/json' \
           --data-binary "@triggers/gitlab-push-test-event.json" \
-          $TEKTON_TRIGGER_GITLAB_LISTENER
+          http://gitlab-listener.$ROUTE53_DOMAIN_NAME
 ```
 
 
