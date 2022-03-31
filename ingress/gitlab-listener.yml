@@ -1,0 +1,13 @@
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: gitlab-listener
+spec:
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: Host(`gitlab-listener.tekton-argocd.de`)
+      services:
+        - name: el-gitlab-listener
+          port: 8080
