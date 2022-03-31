@@ -11,4 +11,4 @@ resources:
   - https://raw.githubusercontent.com/codecentric/tekton-catalog/main/task/argocd-task-create-sync-wait/0.3/argocd-task-create-sync-wait.yml
   - replace-yaml-value-with-yq.yml
   - dump-directory.yml
-  - task-hello-world.yml
+  - task-hello-world.yaml
