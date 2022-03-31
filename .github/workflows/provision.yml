@@ -312,22 +312,10 @@ jobs:
           kubectl apply -f triggers/tekton-trigger-secret.yml
           kubectl apply -f triggers/gitlab-push-listener.yml
 
-      - name: Expose Tekton Triggers EventListener via Ingress & testdrive Trigger
+      - name: Expose Tekton Triggers EventListener as Traefik IngressRoute & testdrive Trigger
         run: |
-          echo "--- Deploy Nginx Ingress Controller"
-          kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v0.34.1/deploy/static/provider/cloud/deploy.yaml
-
-          echo "--- Apply Tekton EventListener Ingress"
-          kubectl apply -f triggers/tekton-eventlistener-ingress.yml
-
-          echo "--- Wait until Ingress url is present (see https://stackoverflow.com/a/70108500/4964553)"
-          until kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
-
-          echo "--- Get Ingress host name"
-          TEKTON_EVENTLISTENER_INGRESS_HOST="http://$(kubectl get ingress tekton-eventlistener-ingress --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
-          echo "Our EventListener's hostname is $TEKTON_EVENTLISTENER_INGRESS_HOST"
-          echo "--- Wait until Ingress url is a resolvable host for curl (see https://stackoverflow.com/a/42873372/4964553)"
-          curl --retry 20 -v $TEKTON_EVENTLISTENER_INGRESS_HOST
+          echo "--- Apply Tekton EventListener Traefik IngressRoute"
+          kubectl apply -f ingress/gitlab-listener.yml
 
           echo "--- Testdrive Trigger via curl"
           curl -v \
@@ -335,5 +323,5 @@ jobs:
           -H 'X-Gitlab-Event: Push Hook' \
           -H 'Content-Type: application/json' \
           --data-binary "@triggers/gitlab-push-test-event.json" \
-          $TEKTON_EVENTLISTENER_INGRESS_HOST
+          $TEKTON_TRIGGER_GITLAB_LISTENER
 
