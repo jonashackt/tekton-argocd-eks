@@ -2100,15 +2100,6 @@ and then re-applying it will resolve the problem.
 
 ## ArgoCD Installation & Dashboard access
 
-#### Install ArgoCD
-
-https://argo-cd.readthedocs.io/en/stable/getting_started/
-
-```shell
-kubectl create namespace argocd
-kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
-```
-
 #### Install Argo CLI
 
 ```shell
@@ -2116,19 +2107,151 @@ brew install argocd
 ```
 
 
-#### Access The Argo CD API Server
+#### Access The Argo CD API Server & Dashboard
 
 You can expose the ArgoCD API Server via Loadbalancer, Ingress or port forwarding to localhost: https://argo-cd.readthedocs.io/en/stable/getting_started/#3-access-the-argo-cd-api-server
 
+https://argo-cd.readthedocs.io/en/stable/operator-manual/ingress/#ingress-configuration
+
+> Argo CD runs both a gRPC server (used by the CLI), as well as a HTTP/HTTPS server (used by the UI). Both protocols are exposed by the argocd-server service object on the following ports:
+
+> 443 - gRPC/HTTPS & 80 - HTTP (redirects to HTTPS)
+
+> There are several ways how Ingress can be configured
+
+
+So let's use Ingress with our Traefik and the nice Route53 domain & wildcard record to route from argocd.tekton-argocd.de. Simply create an Traefik `IngressRoute` as described in  [ingress/argocd-dashboard.yml](ingress/argocd-dashboard.yml):
+
+> As of writing the exact `IngressRoute` from the docs produces an error:
+
 ```shell
-kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
+$ kubectl apply -f ingress/argocd-dashboard.yml
+error: error validating "ingress/argocd-dashboard.yml": error validating data: ValidationError(IngressRoute.spec.tls.options): missing required field "name" in us.containo.traefik.v1alpha1.IngressRoute.spec.tls.options; if you choose to ignore these errors, turn validation off with --validate=false
 ```
 
-Get the `hostname` with
+See https://github.com/argoproj/argo-cd/pull/8951
+
+```yaml
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: argocd-server
+  namespace: argocd
+spec:
+  entryPoints:
+    - websecure
+  routes:
+    - kind: Rule
+      match: Host(`argocd.tekton-argocd.de`)
+      priority: 10
+      services:
+        - name: argocd-server
+          port: 80
+    - kind: Rule
+      match: Host(`argocd.tekton-argocd.de`) && Headers(`Content-Type`, `application/grpc`)
+      priority: 11
+      services:
+        - name: argocd-server
+          port: 80
+          scheme: h2c
+  tls:
+    certResolver: default
+
+```
+
+With this approach we also don't need to `kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'` to use a `LoadBalancer`, which provisions an AWS ELB (incl. additional costs).
+
+Apply it with `kubectl apply -f ingress/argocd-dashboard.yml`. Now ArgoCD should be accessible via http://argocd.tekton-argocd.de
+
+
+#### Why Kustomize is a great way to manage the ArgoCD installation & custom configuration
+
+If [we installed ArgoCD as described in the getting started guide](https://argo-cd.readthedocs.io/en/stable/getting_started/) by using `kubectl apply -f` we will run into `HTTP 307` redirects! What's the problem here?
+
+![traefik-argocd-http307-redirects](screenshots/traefik-argocd-http307-redirects.png)
+
+See https://github.com/argoproj/argo-cd/issues/2953#issuecomment-602898868
+
+> The problem is that by default Argo-CD handles TLS termination itself and always redirects HTTP requests to HTTPS. Combine that with an ingress controller that also handles TLS termination and always communicates with the backend service with HTTP and you get Argo-CD's server always responding with a redirects to HTTPS.
+
+And the ArgoCD docs for Traefik Ingress configuration at https://argo-cd.readthedocs.io/en/stable/operator-manual/ingress/#traefik-v22 tell us to 
+
+> The API server should be run with TLS disabled. Edit the argocd-server deployment to add the --insecure flag to the argocd-server command.
+
+But [How to configure argocd-server Deployment to run with TLS disabled (where to put --insecure flag)](https://stackoverflow.com/questions/71692891/argocd-traefik-2-x-how-to-configure-argocd-server-deployment-to-run-with-tls)?
+
+As stated [in this answer](https://stackoverflow.com/a/71692892/4964553) there's great way to manage custom configuration for Kubernetes deployments like ArgoCD by using Kustomize!
+
+A great way is to use a declarative approach, which should be the default Kubernetes-style. Skimming the ArgoCD docs there's a [additional configuration section](https://argo-cd.readthedocs.io/en/stable/operator-manual/server-commands/additional-configuration-method/#synopsis) where the possible flags of the ConfigMap `argocd-cmd-params-cm` can be found. The flags are described in [argocd-cmd-params-cm.yaml](https://argo-cd.readthedocs.io/en/stable/operator-manual/argocd-cmd-params-cm.yaml). One of them is the flag `server.insecure`
+
+```yaml
+    ## Server properties
+    # Run server without TLS
+    server.insecure: "false"
+```
+
+The `argocd-server` deployment which ships with https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml will use this parameter, if it is defined in the `argocd-cmd-params-cm` ConfigMap.
+
+In order to declaratively configure the ArgoCD configuration, [the ArgoCD docs have a great section](https://argo-cd.readthedocs.io/en/stable/operator-manual/declarative-setup/#manage-argo-cd-using-argo-cd) on how to do that with [Kustomize](https://kustomize.io/). In fact the ArgoCD team itself uses this approach to deploy their own ArgoCD instances - a live deployment is available here https://cd.apps.argoproj.io/ and the configuration used [can be found on GitHub](https://github.com/argoproj/argoproj-deployments/tree/master/argocd).
+
+Adopting this to our use case, we need to switch our ArgoCD installation from simply using `kubectl apply -f` to a Kustomize-based installation. The ArgoCD docs also have [a section on how to do this](https://argo-cd.readthedocs.io/en/stable/operator-manual/installation/#kustomize). Here are the brief steps:
+
+
+#### Create a `argocd/installation` directory with a new file `kustomization.yaml`
+
+We slightly enhance the `kustomization.yaml` proposed in the docs and create it inside [argocd/installation/kustomization.yaml](argocd/installation/kustomization.yaml):
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - https://raw.githubusercontent.com/argoproj/argo-cd/v2.3.3/manifests/install.yaml
+
+## changes to config maps
+patchesStrategicMerge:
+  - argocd-cmd-params-cm-patch.yml
+
+namespace: argocd
+```
+
+Since the docs state
+
+> It is recommended to include the manifest as a remote resource and
+> apply additional customizations using Kustomize patches.
+
+we use the `patchesStrategicMerge` configuration key, which contains another new file we need to create called `argocd-cmd-params-cm-patch.yml`.
+
+
+#### Create a new file `argocd-cmd-params-cm-patch.yml`**
+
+This new [argocd/installation/argocd-cmd-params-cm-patch.yml](argocd/installation/argocd-cmd-params-cm-patch.yml) only contains the configuration we want to change inside the ConfigMap `argocd-cmd-params-cm`:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cmd-params-cm
+data:
+  server.insecure: "true"
+```
+
+#### Install ArgoCD using the Kustomization files & `kubectl apply -k`
+
+There's a separate `kustomize` CLI one can install e.g. via `brew install kustomize`. But as Kustomize is build into `kubectl` we only have to use `kubectl apply -k` and point that to our newly created `argocd/installation` directory like this:
 
 ```shell
-k get svc -n argocd argocd-server --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -    
+kubectl apply -k argocd/installation
 ```
+
+As you can see we also need to make sure the namespace `argocd` is present before Kustomize can apply all the ArgoCD resources.
+
+This will install ArgoCD and configure the `argocd-server` deployment to use the `--insecure` flag as needed to stop Argo from handling the TLS termination itself and giving that responsibility to Traefik.
+
+Now accessing https://argocd.tekton-argocd.de should open the ArgoCD dashboard as expected:
+
+![traefik-argocd-working-dashboard-access](screenshots/traefik-argocd-working-dashboard-access.png)
 
 
 #### Get admin password, login to argocd-server and change password
@@ -2139,21 +2262,21 @@ Obtain ArgoCD admin account's initial password
 kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo
 ```
 
-Login to `argocd-server` hostname, which was exposed as LoadBalancer - using username `admin` and the initial password obtained above:
+Login to `argocd-server` hostname, which was exposed as IngressRoute through Traefik - using username `admin` and the initial password obtained above:
 
 ```shell
-argocd login yourservername.eu-central-1.elb.amazonaws.com
+argocd login argocd.tekton-argocd.de
 ```
 
 This will result in a hopefully successful login like this:
 
 ```shell
 argocd login yourservername.eu-central-1.elb.amazonaws.com
-WARNING: server certificate had error: x509: certificate is valid for localhost, argocd-server, argocd-server.argocd, argocd-server.argocd.svc, argocd-server.argocd.svc.cluster.local, not a198628202c514bb6b81d1ad5688dc91-838360533.eu-central-1.elb.amazonaws.com. Proceed insecurely (y/n)? y
+WARNING: server certificate had error: x509: certificate is valid for localhost, argocd-server, argocd-server.argocd, argocd-server.argocd.svc, argocd-server.argocd.svc.cluster.local, not argocd.tekton-argocd.de. Proceed insecurely (y/n)? y
 Username: admin
 Password:
 'admin:login' logged in successfully
-Context 'yourservername.eu-central-1.elb.amazonaws.com' updated
+Context 'argocd.tekton-argocd.de' updated
 ```
 
 Finally change the initial password via:
@@ -2164,7 +2287,7 @@ argocd account update-password
 
 #### Access ArgoCD UI
 
-Using your Browser open `yourservername.eu-central-1.elb.amazonaws.com` and accept the certificate warnings. Then sign in using the `admin` user credentials from above:
+Using your Browser open `argocd.tekton-argocd.de` and accept the certificate warnings. Then sign in using the `admin` user credentials from above:
 
 ![argocd-ui-first-login](screenshots/argocd-ui-first-login.png)
 
@@ -2203,7 +2326,8 @@ Let's just create a new GitHub Actions job for this purpose, which also needs th
         run: |
           echo "--- Create argo namespace and install it"
           kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-          kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+          echo "--- Install & configure ArgoCD via Kustomize - see https://stackoverflow.com/a/71692892/4964553"
+          kubectl apply -k argocd/installation
 ```
 
 As you can see we must `apply` the `argocd` namespace here instead of `create`ing it - otherwise the workflow will only run once.
@@ -2218,16 +2342,17 @@ We should also configure a GitHub Actions environment for our ArgoCD dashboard (
         id: dashboard-expose
         run: |
           echo "--- Expose ArgoCD Dashboard via K8s Service"
-          kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
-          echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
-          until kubectl get service/argocd-server -n argocd --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
+          kubectl apply -f ingress/argocd-dashboard.yml
+
           echo "--- Create GitHub environment var"
-          DASHBOARD_HOST="http://$(kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+          DASHBOARD_HOST="https://argocd.$ROUTE53_DOMAIN_NAME"
           echo "The ArgoCD dashboard is accessible at $DASHBOARD_HOST - creating GitHub Environment"
           echo "::set-output name=dashboard_host::$DASHBOARD_HOST"
 ```
 
 ![argo-dashboard-as-github-environment](screenshots/argo-dashboard-as-github-environment.png)
+
+
 
 ## ArgoCD application deployment (push)
 
@@ -3557,12 +3682,12 @@ We also directly expose our nice Traefik url traefik.tekton-argocd.de as GitHub 
           echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
           until kubectl get service/traefik -n default --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
 
-          TRAEFIK_URL="http://traefik.$ROUTE53_DOMAIN_NAME/dashboard"
+          TRAEFIK_URL="http://traefik.$ROUTE53_DOMAIN_NAME"
           echo "All Services should be accessible through Traefik Ingress at $TRAEFIK_URL - creating GitHub Environment"
           echo "::set-output name=traefik_url::$TRAEFIK_URL"
 ```
 
-Now Traefik should be accessible at http://traefik.tekton-argocd.de/dashboard/ also through our pipeline.
+Now Traefik should be accessible at http://traefik.tekton-argocd.de also through our pipeline.
 
 
 

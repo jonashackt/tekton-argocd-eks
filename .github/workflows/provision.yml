@@ -119,7 +119,7 @@ jobs:
           echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
           until kubectl get service/traefik -n default --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
 
-          TRAEFIK_URL="http://traefik.$ROUTE53_DOMAIN_NAME/dashboard"
+          TRAEFIK_URL="http://traefik.$ROUTE53_DOMAIN_NAME"
           echo "All Services should be accessible through Traefik Ingress at $TRAEFIK_URL - creating GitHub Environment"
           echo "::set-output name=traefik_url::$TRAEFIK_URL"
 
@@ -147,19 +147,17 @@ jobs:
         run: |
           echo "--- Create argo namespace and install it"
           kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
-          kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+          echo "--- Install & configure ArgoCD via Kustomize - see https://stackoverflow.com/a/71692892/4964553"
+          kubectl apply -k argocd/installation
 
       - name: Expose ArgoCD Dashboard as GitHub environment
         id: dashboard-expose
         run: |
           echo "--- Expose ArgoCD Dashboard via K8s Service"
-          kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'
-
-          echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
-          until kubectl get service/argocd-server -n argocd --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
+          kubectl apply -f ingress/argocd-dashboard.yml
 
           echo "--- Create GitHub environment var"
-          DASHBOARD_HOST="http://$(kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+          DASHBOARD_HOST="https://argocd.$ROUTE53_DOMAIN_NAME"
           echo "The ArgoCD dashboard is accessible at $DASHBOARD_HOST - creating GitHub Environment"
           echo "::set-output name=dashboard_host::$DASHBOARD_HOST"
 
@@ -185,11 +183,11 @@ jobs:
           kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=argocd-server -n argocd
 
           echo "--- Login argocd CLI - now wrapped in until to prevent dial tcp: lookup 12345.eu-central-1.elb.amazonaws.com on 8.8.8.8:53: no such host (see https://stackoverflow.com/a/71030112/4964553)"
-          until argocd login $(kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}') --username admin --password $(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo) --insecure; do : ; done
+          until argocd login argocd.$ROUTE53_DOMAIN_NAME --username admin --password $(kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo) --insecure; do : ; done
 
           echo "--- Create ConfigMap to point argocd CLI to our argocd-server"
           kubectl create configmap argocd-env-configmap \
-              --from-literal="ARGOCD_SERVER=$(kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')" \
+              --from-literal="ARGOCD_SERVER=argocd.$ROUTE53_DOMAIN_NAME" \
               --namespace default \
               --save-config --dry-run=client -o yaml | kubectl apply -f -
 
