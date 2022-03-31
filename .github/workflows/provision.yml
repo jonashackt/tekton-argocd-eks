@@ -15,7 +15,7 @@ jobs:
       PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
     # Create an GitHub environment referencing our EKS cluster endpoint
     environment:
-      name: traefik-eks-url
+      name: traefik-dashboard
       url: ${{ steps.traefik-expose.outputs.traefik_url }}
       # using outputs for providing the Pulumi created kubeconfig to subsequent jobs
       # see https://stackoverflow.com/a/61236803/4964553
