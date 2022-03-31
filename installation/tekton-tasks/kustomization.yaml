@@ -1,0 +1,12 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - https://raw.githubusercontent.com/tektoncd/catalog/master/task/git-clone/0.4/git-clone.yaml
+  - https://raw.githubusercontent.com/tektoncd/catalog/master/task/buildpacks/0.3/buildpacks.yaml
+  - https://raw.githubusercontent.com/tektoncd/catalog/main/task/gitlab-set-status/0.1/gitlab-set-status.yaml
+  - https://raw.githubusercontent.com/tektoncd/catalog/main/task/maven/0.2/maven.yaml
+  - https://raw.githubusercontent.com/tektoncd/catalog/main/task/yq/0.3/yq.yaml
+  - https://raw.githubusercontent.com/tektoncd/catalog/main/task/git-cli/0.3/git-cli.yaml
+  - tasks/replace-yaml-value-with-yq.yml
+  - tasks/argocd-task-create-sync-wait.yml
