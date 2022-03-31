@@ -8,5 +8,5 @@ resources:
   - https://raw.githubusercontent.com/tektoncd/catalog/main/task/maven/0.2/maven.yaml
   - https://raw.githubusercontent.com/tektoncd/catalog/main/task/yq/0.3/yq.yaml
   - https://raw.githubusercontent.com/tektoncd/catalog/main/task/git-cli/0.3/git-cli.yaml
-  - tasks/replace-yaml-value-with-yq.yml
-  - tasks/argocd-task-create-sync-wait.yml
+  - ../../tasks/replace-yaml-value-with-yq.yml
+  - ../../tasks/argocd-task-create-sync-wait.yml
