@@ -237,7 +237,7 @@ brew install tektoncd/tools/tektoncd-cli
 
 ### Run first Tekton Task
 
-See the [task-hello-world.yaml](tasks/task-hello-world.yaml):
+See the [task-hello-world.yaml](installation/tekton-tasks/task-hello-world.yaml):
 
 ```yaml
 apiVersion: tekton.dev/v1beta1
@@ -257,7 +257,7 @@ spec:
 Let's apply it to our cluster:
 
 ```shell
-kubectl apply -f tasks/task-hello-world.yaml
+kubectl apply -f installation/tekton-tasks/task-hello-world.yaml
 ```
 
 Let's show our newly created task:
@@ -2449,7 +2449,7 @@ It uses `CONFIG_URL` and `CONFIG_REVISION` instead, which we both need to provid
 
 #### Dump/list the contents of the fetched config repository
 
-In order to have insights what files are fetched by the git-clone task, we can implement our own custom Task to show us these files. Let's imagine a [dump-directory.yml](tasks/dump-directory.yml):
+In order to have insights what files are fetched by the git-clone task, we can implement our own custom Task to show us these files. Let's imagine a [dump-directory.yml](installation/tekton-tasks/dump-directory.yml):
 
 ```yaml
 apiVersion: tekton.dev/v1beta1
@@ -2649,7 +2649,7 @@ we should see the application beeing deployed through Argo after a maximum of 3 
 
 The Hub task https://hub.tekton.dev/tekton/task/argocd-task-sync-and-wait HAZ NO APP CREATE!
 
-So let's create our own simple Task [argocd-task-app-create.yml](tasks/argocd-task-app-create.yml) derived from https://hub.tekton.dev/tekton/task/argocd-task-sync-and-wait and https://github.com/tektoncd/catalog/pull/903/files (since the `v0.1` uses the old ArgoCD version `1.x`):
+So let's create our own simple Task https://github.com/codecentric/tekton-catalog/tree/main/task/argocd-task-create-sync-wait/0.3 derived from https://hub.tekton.dev/tekton/task/argocd-task-sync-and-wait and https://github.com/tektoncd/catalog/pull/903/files (since the `v0.1` uses the old ArgoCD version `1.x`):
 
 ```yaml
 apiVersion: tekton.dev/v1beta1
@@ -2713,7 +2713,7 @@ spec:
 And apply it with
 
 ```shell
-kubectl apply -f tasks/argocd-task-app-create.yml
+kubectl apply -f https://raw.githubusercontent.com/codecentric/tekton-catalog/main/task/argocd-task-create-sync-wait/0.3/argocd-task-create-sync-wait.yml
 ```
 
 
@@ -2722,10 +2722,7 @@ kubectl apply -f tasks/argocd-task-app-create.yml
 https://hub.tekton.dev/tekton/task/argocd-task-sync-and-wait
 
 ```shell
-# Get ArgoCD server hostname
-kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}'
-
-kubectl create configmap argocd-env-configmap --from-literal="ARGOCD_SERVER=$(kubectl get service argocd-server -n argocd --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+kubectl create configmap argocd-env-configmap --from-literal="ARGOCD_SERVER=argocd.tekton-argocd.de"
 ```
 
 
@@ -3119,7 +3116,7 @@ The full Task `switch-config-repository-branch` using `git-cli` in the [pipeline
 
 Now that we have our `branch name` extracted via Tekton Triggers CEL interceptor and available for the Pipeline as a parameter, we should add it to our application's `Deployment` and `Service` manifests.
 
-Therefore our [replace-image-name-with-yq.yml](tasks/replace-yaml-value-with-yq.yml) needs to be redesigned, since right now it only replaces the `image` tag. So first rename it to `replace-yaml-value-with-yq.yml` and then we may start in our [pipeline.yml](pipelines/pipeline.yml) to see what interface our task should have:
+Therefore our [replace-image-name-with-yq.yml](installation/tekton-tasks/replace-yaml-value-with-yq.yml) needs to be redesigned, since right now it only replaces the `image` tag. So first rename it to `replace-yaml-value-with-yq.yml` and then we may start in our [pipeline.yml](pipelines/pipeline.yml) to see what interface our task should have:
 
 ```yaml
    - name: replace-deployment-name-branch-image
@@ -3173,7 +3170,7 @@ which inside our [pipeline.yml](pipelines/pipeline.yml) looks like:
           value: "./deployment/service.yml"
 ```
 
-Therefore the task [replace-image-name-with-yq.yml](tasks/replace-yaml-value-with-yq.yml) was redesigned to support multiple yq expressions as array list:
+Therefore the task [replace-image-name-with-yq.yml](installation/tekton-tasks/replace-yaml-value-with-yq.yml) was redesigned to support multiple yq expressions as array list:
 
 ```yaml
 apiVersion: tekton.dev/v1beta1
@@ -3549,7 +3546,7 @@ Now Traefik should be accessible at http://traefik.tekton-argocd.de also through
 
 The `traefik-ingress-route.yml` will also be added to our application configuration repository https://gitlab.com/jonashackt/microservice-api-spring-boot-config in the `deployment` directory. So now it can be also deployed using Argo.
 
-Now we simply use our [replace-yaml-value-with-yq.yml](tasks/replace-yaml-value-with-yq.yml) a 3rd time in our pipeline:
+Now we simply use our [replace-yaml-value-with-yq.yml](installation/tekton-tasks/replace-yaml-value-with-yq.yml) a 3rd time in our pipeline:
 
 ```yaml
     - name: replace-ingress-name-route

@@ -29,7 +29,7 @@ spec:
       default: "gitlab.com"
     - name: TEKTON_DASHBOARD_HOST
       description: The Tekton Dashboard URL for the status reports in GitLab
-      default: "http://a9852d9e8a6af4f759d2f4eb642ea7d7-1033845141.eu-central-1.elb.amazonaws.com"
+      default: "http://tekton.tekton-argocd.de"
     - name: TRAEFIK_DOMAIN
       description: The domain name where Traefik is configured to work behind an ELB.
       default: tekton-argocd.de

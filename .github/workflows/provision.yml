@@ -228,6 +228,9 @@ jobs:
           echo "--- Install Tekton Pipelines, Dashboard, Triggers via Kustomize"
           kubectl apply -k installation/tekton
 
+          echo "--- Install Tekton Hub & local Tasks via Kustomize"
+          kubectl apply -k installation/tekton-tasks
+
           echo "--- Wait for Tekton to become ready & show running Tekton pods"
           kubectl wait --for=condition=ready pod -l app=tekton-pipelines-controller --namespace tekton-pipelines --timeout=120s
           kubectl get pods --namespace tekton-pipelines
@@ -250,9 +253,6 @@ jobs:
 
       - name: Create Tekton Task & run it with a TaskRun
         run: |
-          echo "--- Create Task"
-          kubectl apply -f tasks/task-hello-world.yaml
-
           echo "--- Start TaskRun"
           tkn task start hello --dry-run > taskRun-hello.yaml
           TASK_RUN_NAME=$(kubectl create -f taskRun-hello.yaml -o json | jq -r '.metadata.name')
@@ -262,10 +262,6 @@ jobs:
 
           echo "--- Show TaskRun logs"
           tkn taskrun logs $TASK_RUN_NAME
-
-      - name: Install Tekton Hub & local Tasks via Kustomize
-        run: |
-          kubectl apply -k installation/tekton-tasks
 
       - name: Create Secrets for GitLab Container Registry & Repository access & apply buildpacks PVC, ServiceAccount & Pipeline
         run: |
