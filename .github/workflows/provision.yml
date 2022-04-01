@@ -148,7 +148,7 @@ jobs:
           echo "--- Create argo namespace and install it"
           kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
           echo "--- Install & configure ArgoCD via Kustomize - see https://stackoverflow.com/a/71692892/4964553"
-          kubectl apply -k installation/argocd
+          kubectl apply -k argocd/install
 
       - name: Expose ArgoCD Dashboard as GitHub environment
         id: dashboard-expose
@@ -226,10 +226,10 @@ jobs:
       - name: Install Tekton Pipelines, Dashboard, Triggers, Tasks
         run: |
           echo "--- Install Tekton Pipelines, Dashboard, Triggers via Kustomize"
-          kubectl apply -k installation/tekton
+          kubectl apply -k tekton/install
 
           echo "--- Install Tekton Hub & local Tasks via Kustomize"
-          kubectl apply -k installation/tekton-tasks
+          kubectl apply -k tekton/tasks
 
           echo "--- Wait for Tekton to become ready & show running Tekton pods"
           kubectl wait --for=condition=ready pod -l app=tekton-pipelines-controller --namespace tekton-pipelines --timeout=120s
@@ -280,21 +280,20 @@ jobs:
               --save-config --dry-run=client -o yaml | kubectl apply -f -
 
           echo "--- Create Secret for GitLab based configuration repository"
-          sed "s#{{GITLAB_PUSH_TOKEN}}#${{ secrets.GITLAB_PUSH_TOKEN }}#g" misc/gitlab-push-secret.yml | kubectl apply -f -
+          sed "s#{{GITLAB_PUSH_TOKEN}}#${{ secrets.GITLAB_PUSH_TOKEN }}#g" tekton/misc/gitlab-push-secret.yml | kubectl apply -f -
 
           echo "--- apply buildpacks PVC, ServiceAccount & Pipeline"
-          kubectl apply -f misc/buildpacks-source-pvc.yml
-          kubectl apply -f misc/buildpacks-service-account-gitlab.yml
-          kubectl apply -f pipelines/pipeline.yml
+          kubectl apply -k tekton/misc
+          kubectl apply -k tekton/pipelines
 
           echo "--- Insert Tekton dashboard url into generic-gitlab-set-status Pipeline config and apply it (see https://stackoverflow.com/a/70890805/4964553)"
           TEKTON_DASHBOARD_HOST="${{ steps.dashboard-expose.outputs.dashboard_host }}"
-          sed "s#{{TEKTON_DASHBOARD_HOST}}#$TEKTON_DASHBOARD_HOST#g" pipelines/generic-gitlab-set-status.yml | kubectl apply -f -
+          sed "s#{{TEKTON_DASHBOARD_HOST}}#$TEKTON_DASHBOARD_HOST#g" tekton/pipelines/generic-gitlab-set-status.yml | kubectl apply -f -
 
       - name: Run Tekton Buildpacks powered Pipeline by creating PipelineRun
         run: |
           echo "--- Trigger PipelineRun in Tekton / K8s"
-          PIPELINE_RUN_NAME=$(kubectl create -f pipelines/pipeline-run.yml --output=jsonpath='{.metadata.name}')
+          PIPELINE_RUN_NAME=$(kubectl create -f tekton/pipelines/pipeline-run.yml --output=jsonpath='{.metadata.name}')
 
           echo "--- Show Tekton PipelineRun logs"
           tkn pipelinerun logs $PIPELINE_RUN_NAME --follow
@@ -304,9 +303,7 @@ jobs:
 
       - name: Create Tekton Triggers EventListener, Trigger Secret, ServiceAccount/RoleBinding/ClusterRoleBinding
         run: |
-          kubectl apply -f triggers/serviceaccount-rb-crb.yml
-          kubectl apply -f triggers/tekton-trigger-secret.yml
-          kubectl apply -f triggers/gitlab-push-listener.yml
+          kubectl apply -k tekton/triggers
 
       - name: Expose Tekton Triggers EventListener as Traefik IngressRoute & testdrive Trigger
         run: |
@@ -318,6 +315,6 @@ jobs:
           -H 'X-GitLab-Token: 1234567' \
           -H 'X-Gitlab-Event: Push Hook' \
           -H 'Content-Type: application/json' \
-          --data-binary "@triggers/gitlab-push-test-event.json" \
+          --data-binary "@tekton/triggers/gitlab-push-test-event.json" \
           http://gitlab-listener.$ROUTE53_DOMAIN_NAME
 
