@@ -12,3 +12,4 @@ resources:
   - replace-yaml-value-with-yq.yml
   - dump-directory.yml
   - task-hello-world.yaml
+  - kustomize-manifests.yml
