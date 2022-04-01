@@ -38,5 +38,3 @@ spec:
       value: trigger-tekton-via-webhook
     - name: CONFIG_URL
       value: https://gitlab.com/jonashackt/microservice-api-spring-boot-config.git
-    - name: CONFIG_REVISION
-      value: argocd

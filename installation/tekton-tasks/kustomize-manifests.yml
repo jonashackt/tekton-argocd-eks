@@ -1,0 +1,60 @@
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: kustomize-manifests
+spec:
+  workspaces:
+    - name: source
+      description: The workspace containing the manifests and kustomization.yaml
+  params:
+    - name: KUSTOMIZATION_PATH
+      description: The path where the root kustomization.yaml can be found
+    - name: APPLICATION_NAME
+      description: The application or project name - e.g. microservice-api-spring-boot
+    - name: TRAEFIK_DOMAIN
+      description: The domain part of the Traefik IngressRoutes .spec.routes.match Host - e.g. tekton-argocd.de
+    - name: BRANCH_NAME
+      description: The branch name to configure to the manifests with Kustomize
+      default: main
+    - name: IMAGE_NAME
+      description: The image name used in the deployments .spec.template.spec.containers[0].image
+    - name: KUSTOMIZE_VERSION
+      description: Version of https://kubectl.docs.kubernetes.io/installation/kustomize/docker/
+      default: v4.5.4
+  steps:
+    - name: kustomize-them-all
+      image: k8s.gcr.io/kustomize/kustomize:$(params.KUSTOMIZE_VERSION)
+      workingDir: $(workspaces.source.path)
+      script: |
+        echo "--- cd into the kustomization root folder"
+        cd $(params.KUSTOMIZATION_PATH)
+
+        echo "--- Create ingressroute-patch.yml with correct spec.routes.match: Host() name for Traefik IngressRoute - see https://stackoverflow.com/a/71704024/4964553"
+        cat > ./ingressroute-patch.yml <<EOF
+        apiVersion: traefik.containo.us/v1alpha1
+        kind: IngressRoute
+        metadata:
+          name: $(params.APPLICATION_NAME)-ingressroute
+          namespace: default
+        spec:
+          entryPoints:
+            - web
+          routes:
+            - match: Host(\`$(params.APPLICATION_NAME)-$(params.BRANCH_NAME).$(params.TRAEFIK_DOMAIN)\`)
+              kind: Rule
+              services:
+                - name: $(params.APPLICATION_NAME)
+                  port: 80
+
+        EOF
+
+        echo "--- Run kustomize edits"
+        kustomize edit set namesuffix -- -$(params.BRANCH_NAME)
+        kustomize edit set label branch:$(params.BRANCH_NAME)
+        kustomize edit set image $(params.IMAGE_NAME)
+
+        echo "--- Show output of Kustomization for better insights"
+        kustomize build .
+
+      resources: {}
+

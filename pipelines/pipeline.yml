@@ -142,62 +142,31 @@ spec:
           value: |
             git fetch origin "$(params.SOURCE_BRANCH)" && git checkout "$(params.SOURCE_BRANCH)" || git checkout -b "$(params.SOURCE_BRANCH)"
 
-    - name: replace-deployment-name-branch-image
+    - name: kustomize-manifests
       taskRef:
-        name: replace-yaml-value-with-yq
+        name: kustomize-manifests
       runAfter:
         - switch-config-repository-branch
       workspaces:
         - name: source
           workspace: config-workspace
       params:
-        - name: YQ_EXPRESSIONS
-          value:
-            - ".metadata.name = \"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)\""
-            - ".spec.template.spec.containers[0].image = \"$(params.IMAGE):$(params.SOURCE_REVISION)\""
-            - ".spec.selector.matchLabels.branch = \"$(params.SOURCE_BRANCH)\""
-            - ".spec.template.metadata.labels.branch = \"$(params.SOURCE_BRANCH)\""
-        - name: FILE_PATH
-          value: "./deployment/deployment.yml"
-
-    - name: replace-service-name-branch
-      taskRef:
-        name: replace-yaml-value-with-yq
-      runAfter:
-        - replace-deployment-name-branch-image
-      workspaces:
-        - name: source
-          workspace: config-workspace
-      params:
-        - name: YQ_EXPRESSIONS
-          value:
-            - ".metadata.name = \"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)\""
-            - ".spec.selector.branch = \"$(params.SOURCE_BRANCH)\""
-        - name: FILE_PATH
-          value: "./deployment/service.yml"
-
-    - name: replace-ingress-name-route
-      taskRef:
-        name: replace-yaml-value-with-yq
-      runAfter:
-        - replace-service-name-branch
-      workspaces:
-        - name: source
-          workspace: config-workspace
-      params:
-        - name: YQ_EXPRESSIONS
-          value:
-            - ".metadata.name = \"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)-ingressroute\""
-            - ".spec.routes[0].match = \"Host(`$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH).$(params.TRAEFIK_DOMAIN)`)\""
-            - ".spec.routes[0].services[0].name = \"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)\""
-        - name: FILE_PATH
-          value: "./deployment/traefik-ingress-route.yml"
+        - name: KUSTOMIZATION_PATH
+          value: "deployment"
+        - name: APPLICATION_NAME
+          value: "$(params.PROJECT_NAME)"
+        - name: TRAEFIK_DOMAIN
+          value: "$(params.TRAEFIK_DOMAIN)"
+        - name: BRANCH_NAME
+          value: "$(params.SOURCE_BRANCH)"
+        - name: IMAGE_NAME
+          value: "$(params.IMAGE):$(params.SOURCE_REVISION)"
 
     - name: commit-and-push-to-config-repo
       taskRef:
         name: git-cli
       runAfter:
-        - replace-ingress-name-route
+        - kustomize-manifests
       workspaces:
         - name: source
           workspace: config-workspace

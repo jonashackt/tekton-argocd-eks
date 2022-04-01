@@ -3212,6 +3212,165 @@ spec:
 ```
 
 
+
+### Refactor yq replacement of branch name in Deployment, Service & IngressRoute to Kustomize 
+
+In order to replace all needed fields in Deployment, Service and IngressRoute using the refactored replace task we still have 3 big tasks with lot's of yq expressions, we need to maintain in the future:
+
+```
+    - name: replace-deployment-name-branch-image
+      taskRef:
+        name: replace-yaml-value-with-yq
+      runAfter:
+        - switch-config-repository-branch
+      workspaces:
+        - name: source
+          workspace: config-workspace
+      params:
+        - name: YQ_EXPRESSIONS
+          value:
+            - ".metadata.name = \"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)\""
+            - ".spec.template.spec.containers[0].image = \"$(params.IMAGE):$(params.SOURCE_REVISION)\""
+            - ".spec.selector.matchLabels.branch = \"$(params.SOURCE_BRANCH)\""
+            - ".spec.template.metadata.labels.branch = \"$(params.SOURCE_BRANCH)\""
+        - name: FILE_PATH
+          value: "./deployment/deployment.yml"
+
+    - name: replace-service-name-branch
+      taskRef:
+        name: replace-yaml-value-with-yq
+      runAfter:
+        - replace-deployment-name-branch-image
+      workspaces:
+        - name: source
+          workspace: config-workspace
+      params:
+        - name: YQ_EXPRESSIONS
+          value:
+            - ".metadata.name = \"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)\""
+            - ".spec.selector.branch = \"$(params.SOURCE_BRANCH)\""
+        - name: FILE_PATH
+          value: "./deployment/service.yml"
+
+    - name: replace-ingress-name-route
+      taskRef:
+        name: replace-yaml-value-with-yq
+      runAfter:
+        - replace-service-name-branch
+      workspaces:
+        - name: source
+          workspace: config-workspace
+      params:
+        - name: YQ_EXPRESSIONS
+          value:
+            - ".metadata.name = \"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)-ingressroute\""
+            - ".spec.routes[0].match = \"Host(`$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH).$(params.TRAEFIK_DOMAIN)`)\""
+            - ".spec.routes[0].services[0].name = \"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)\""
+        - name: FILE_PATH
+          value: "./deployment/traefik-ingress-route.yml"
+```
+
+But we can switch over to Kustomize - see https://stackoverflow.com/questions/71704023/how-to-use-kustomize-to-configure-traefik-2-x-ingressroute-metadata-name-spec
+
+If you're interested how this works have a look into the application configuration repository: https://gitlab.com/jonashackt/microservice-api-spring-boot-config/-/blob/main/README.md#configuration-with-kustomize
+
+When our application configuration repository is Kustomize-ready (it at least needs a `kustomization.yaml`), we can refactor our [pipelines/pipeline.yml](pipelines/pipeline.yml) to use a custom task, which replaces the 3 replace-with-yq tasks:
+
+```yaml
+    - name: kustomize-manifests
+      taskRef:
+        name: kustomize-manifests
+      runAfter:
+        - switch-config-repository-branch
+      workspaces:
+        - name: source
+          workspace: config-workspace
+      params:
+        - name: KUSTOMIZATION_PATH
+          value: "deployment"
+        - name: APPLICATION_NAME
+          value: "$(params.PROJECT_NAME)"
+        - name: TRAEFIK_DOMAIN
+          value: "$(params.TRAEFIK_DOMAIN)"
+        - name: BRANCH_NAME
+          value: "$(params.SOURCE_BRANCH)"
+        - name: IMAGE_NAME
+          value: "$(params.IMAGE):$(params.SOURCE_REVISION)"
+```
+
+Inside the new custom task [kustomize-manifests.yml](installation/tekton-tasks/kustomize-manifests.yml), we simply use the official Kustomize container image https://kubectl.docs.kubernetes.io/installation/kustomize/docker/ to issue our `kustomize edit set` commands:
+
+```yaml
+apiVersion: tekton.dev/v1beta1
+kind: Task
+metadata:
+  name: kustomize-manifests
+spec:
+  workspaces:
+    - name: source
+      description: The workspace containing the manifests and kustomization.yaml
+  params:
+    - name: KUSTOMIZATION_PATH
+      description: The path where the root kustomization.yaml can be found
+    - name: APPLICATION_NAME
+      description: The application or project name - e.g. microservice-api-spring-boot
+    - name: TRAEFIK_DOMAIN
+      description: The domain part of the Traefik IngressRoutes .spec.routes.match Host - e.g. tekton-argocd.de
+    - name: BRANCH_NAME
+      description: The branch name to configure to the manifests with Kustomize
+      default: main
+    - name: IMAGE_NAME
+      description: The image name used in the deployments .spec.template.spec.containers[0].image
+    - name: KUSTOMIZE_VERSION
+      description: Version of https://kubectl.docs.kubernetes.io/installation/kustomize/docker/
+      default: v4.5.4
+  steps:
+    - name: kustomize-them-all
+      image: k8s.gcr.io/kustomize/kustomize:$(params.KUSTOMIZE_VERSION)
+      workingDir: $(workspaces.source.path)
+      script: |
+        echo "--- cd into the kustomization root folder"
+        cd $(params.KUSTOMIZATION_PATH)
+
+        echo "--- Create ingressroute-patch.yml with correct spec.routes.match: Host() name for Traefik IngressRoute - see https://stackoverflow.com/a/71704024/4964553"
+        cat > ./ingressroute-patch.yml <<EOF
+        apiVersion: traefik.containo.us/v1alpha1
+        kind: IngressRoute
+        metadata:
+          name: $(params.APPLICATION_NAME)-ingressroute
+          namespace: default
+        spec:
+          entryPoints:
+            - web
+          routes:
+            - match: Host(\`$(params.APPLICATION_NAME)-$(params.BRANCH_NAME).$(params.TRAEFIK_DOMAIN)\`)
+              kind: Rule
+              services:
+                - name: $(params.APPLICATION_NAME)
+                  port: 80
+
+        EOF
+
+        echo "--- Run kustomize edits"
+        kustomize edit set namesuffix -- -$(params.BRANCH_NAME)
+        kustomize edit set label branch:$(params.BRANCH_NAME)
+        kustomize edit set image $(params.IMAGE_NAME)
+
+        echo "--- Show output of Kustomization for better insights"
+        kustomize build .
+
+      resources: {}
+
+```
+
+Also managed by Kustomize the task get's installed right in our GitHub Actions pipeline by
+
+```shell
+kubectl apply -k installation/tekton-tasks
+```
+
+
+
 ### Push files to feature-branch in the application configuration repository 
 
 We already made sure the feature-branch is present or created inside our application configuration repository. Now we need to push the freshly replaced `Deployment` and `Service` manifests to the branch also.
