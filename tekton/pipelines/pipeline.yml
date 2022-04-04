@@ -108,6 +108,9 @@ spec:
           value: "$(params.IMAGE):$(params.SOURCE_REVISION)"
         - name: CACHE_IMAGE
           value: "$(params.IMAGE):paketo-build-cache"
+        - name: ENV_VARS
+          value:
+            - "BP_JVM_VERSION=17"
         - name: BUILDER_IMAGE
           value: paketobuildpacks/builder:base # This is the builder we want the task to use (REQUIRED)
 
