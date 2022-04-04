@@ -2,8 +2,44 @@
 [![Build Status](https://github.com/jonashackt/aws-eks-tekton-gitlab/workflows/provision/badge.svg)](https://github.com/jonashackt/aws-eks-tekton-gitlab/actions)
 [![License](http://img.shields.io/:license-mit-blue.svg)](https://github.com/jonashackt/aws-eks-tekton-gitlab/blob/master/LICENSE)
 [![renovateenabled](https://img.shields.io/badge/renovate-enabled-yellow)](https://renovatebot.com)
+[![Configured with Kustomize](https://img.shields.io/badge/configured_by-Kustomize-455EA3.svg?logo=kubernetes&logoColor=455EA3)](https://kustomize.io/)
+[![Ingress with Traefik](https://img.shields.io/badge/Traefik-traefik.tekton--argocd.de-5AA8C4.svg?logo=traefikmesh&logoColor=5AA8C4)](http://traefik.tekton-argocd.de/dashboard/#)
+[![K8s deployment with ArgoCD](https://img.shields.io/badge/ArgoCD-argocd.tekton--argocd.de-E17F55.svg?logo=octopusdeploy&logoColor=E17F55)](https://argocd.tekton-argocd.de/applications)
+[![CICD with Tekton](https://img.shields.io/badge/Tekton-tekton.tekton--argocd.de-7A4572.svg?logo=tekton&logoColor=DD5C5E)](http://tekton.tekton-argocd.de/#/namespaces/default/pipelineruns)
+[![Trigger EventListener for GitLab](https://img.shields.io/badge/Trigger_EventListener_for_GitLab-gitlab--listener.tekton--argocd.de-7A4572.svg?logo=gitlab&logoColor=DD5C5E)](http://gitlab-listener.tekton-argocd.de/)
 
-This Demo repository shows how to deploy and configure [Tekton](https://tekton.dev/) on Amazon EKS and integrate Tekton with GitLab (especially https://gitlab.com/jonashackt/microservice-api-spring-boot).
+
+This repository shows how to:
+
+* [create an ephemeral EKS cluster using Pulumi](#eks-with-pulumi) & install [Traefik as Ingress Controller the CRD way](#kubernetes-ingress-for-services-using-traefik-v2) using `IngressRoute` objects
+* [configure a Route53 domain record dynamically to provide sub domain based routing](#automatically-creating-the-route53-a-record-based-on-the-traefik-elb-in-github-actions) through Traefik for all services (base services & application services)
+* prepare [ArgoCD for application deployment in the GitOps style](#gitops-with-argocd)
+* [install & configure Tekton on EKS](#tekton-on-eks) and run [a Cloud Native Buildpacks powered Pipeline](#cloud-native-buildpacks-with-tekton)
+* [integrate Tekton with GitLab](#integrate-tekton-on-eks-with-gitlab) (application https://gitlab.com/jonashackt/microservice-api-spring-boot) using direct trigger via `tkn` CLI (via [aws-kubectl-tkn Docker image](https://gitlab.com/jonashackt/aws-kubectl-tkn)) or [Tekton Triggers](https://tekton.dev/docs/triggers/) incl. GitLab Webhooks & reporting Tekton pipeline status back to GitLab using [gitlab-set-status](https://hub.tekton.dev/tekton/task/gitlab-set-status) task
+* [application deployment using ArgoCD](#argocd-application-deployment) based on the application configuration repo https://gitlab.com/jonashackt/microservice-api-spring-boot-config
+
+It is structured according to all tools used:
+
+```
+.
+├── argocd
+│   └── ArgoCD related configuration
+├── eks-deployment
+│   └── Pulumi configuration (TypeScript style)
+├── ingress
+│   └── Traefik IngressRoute configurations
+├── tekton
+│   ├── install
+│   │   └── kustomization.yaml
+│   ├── misc
+│   │   └── ServiceAccounts, PVCs, Secrets
+│   ├── pipelines
+│   │   └── Tekton Pipelines
+│   ├── tasks
+│   │   └── Tekton Tasks
+│   └── triggers
+│       └── Tekton Triggers Event Listener configuration
+```
 
 
 # EKS with Pulumi
@@ -170,14 +206,341 @@ See also the examples - e.g. https://github.com/pulumi/pulumi-eks/blob/master/ex
 
 
 
-# Install Tekton on EKS
+# Kubernetes Ingress for Services using Traefik v2
+
+I've started to have the Tekton Dashboard, the ArgoCD server/dashboard & Tekton Trigger EventListener exposed as their own separate Services of type `LoadBalancer`, which leads to the creation of multiple classic Elastic Load Balancers in AWS:
+
+![elastic-loadbalancers](screenshots/elastic-loadbalancers.png)
+
+In the section `LoadBalancer for every http service` of https://blog.pipetail.io/posts/2020-05-04-most-common-mistakes-k8s/ the problem is described as:
+
+> resources might get expensive (external static ipv4 address, compute, per-second pricing ,...)
+
+To prevent that one could use the concept of an api gateway or Ingress in K8s terms. One of the best solutions out there is Traefik https://traefik.io/
+
+
+## Choose one of 3 ways to install & use Traefik in K8s
+
+As of the docs there are 3 ways on how to use Traefik in Kubernetes:
+
+1. IngressRoute Custom Resource Definition (CRD) for Kubernetes: https://doc.traefik.io/traefik/providers/kubernetes-crd/
+2. "old familiar" Ingress Controller as the Kubernetes Ingress provider: https://doc.traefik.io/traefik/providers/kubernetes-ingress/
+3. Experimental Kubernetes Gateway API: https://doc.traefik.io/traefik/providers/kubernetes-gateway/
+
+CRDs seem to be the current defacto standard way to extend Kubernetes (by extending the Kubernetes API): https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/
+
+So let's go with the IngressRoute CRD. There's also a full guide including Let's Encrypt in the Traefik docs https://doc.traefik.io/traefik/user-guides/crd-acme/
+
+
+## Install Traefik as KubernetesCRD with Helm
+
+Install Traefik via Helm: https://doc.traefik.io/traefik/getting-started/install-traefik/#use-the-helm-chart from it's chart at https://github.com/traefik/traefik-helm-chart:
+
+> This chart bootstraps Traefik version 2 as a Kubernetes ingress controller, using Custom Resources IngressRoute: https://docs.traefik.io/providers/kubernetes-crd/
+
+We do all this right inside our GitHub Actions workflow [provision.yml](.github/workflows/provision.yml):
+
+```yaml
+      - name: Install Traefik via Helm
+        run: |
+          echo "--- Install Traefik via Helm (which is already installed in GitHub Actions environment https://github.com/actions/virtual-environments)
+          helm repo add traefik https://helm.traefik.io/traefik
+          helm repo update
+          helm upgrade -i traefik traefik/traefik
+```
+
+But instead of `helm install traefik traefik/traefik` we use `helm upgrade -i traefik traefik/traefik` to prevent the error `Error: INSTALLATION FAILED: cannot re-use a name that is still in use`(see https://stackoverflow.com/a/70465191/4964553).
+
+Now Traefik is already deployed and we can see it's Service (aka the Traefik Ingress Controller) in k9s for example:
+
+![traefik-k9s-service](screenshots/traefik-k9s-service.png)
+
+You may temporarily expose the dashboard with a local `kubectl port-forward` like this (but we will create a nice domain later also):
+
+```
+kubectl port-forward $(kubectl get pods --selector "app.kubernetes.io/name=traefik" --output=name) 9000:9000
+```
+
+And access it at http://127.0.0.1:9000/dashboard/
+
+
+## IngressRoutes for Services to be available via Traefik
+
+Now let's configure the `IngressRoute` objects to get our Services accessible through Traefik
+
+https://doc.traefik.io/traefik/user-guides/crd-acme/#traefik-routers
+
+https://doc.traefik.io/traefik/routing/routers/#rule
+
+So start by creating our first `IngressRoute` definition - right now only statically to see it working inside [traefik-application-ingress-routes.yml](ingress/traefik-application-ingress-routes.yml):
+
+```yaml
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: microservice-api-spring-boot-ingressroute
+  namespace: default
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`microservice-api-spring-boot-main`)
+      kind: Rule
+      services:
+        - name: microservice-api-spring-boot-main
+          port: 80
+```
+
+Apply it with `kubectl apply -f ingress/traefik-application-ingress-routes.yml`
+
+Finally use a REST client like Postman to access our Service:
+
+![traefik-postman-first-ingressroute-service-call](screenshots/traefik-postman-first-ingressroute-service-call.png)
+
+You need to provide the `Host:microservice-api-spring-boot-main` header in your request in order to make the call work.
+
+
+
+## Testing DNS-based Service availability on AWS EKS with Traefik
+
+First create a Domain with AWS Route53 - this will take a while & you should finally receive a mail, that your domain was registered successfully (this took around 20mins for me).
+
+When we have our domain ready - for me this is tekton-argocd.de - we can configure the Route53 hosted zone with the correct records.
+
+See https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/routing-to-elb-load-balancer.html#routing-to-elb-load-balancer-configuring
+
+![route53-hostedzone-record](screenshots/route53-hostedzone-record.png)
+
+
+Let's test it by enhancing our `IngressRoute` inside [traefik-application-ingress-routes.yml](ingress/traefik-application-ingress-routes.yml):
+
+```yaml
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: microservice-api-spring-boot-ingressroute
+  namespace: default
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`microservice-api-spring-boot-main.tekton-argocd.de`)
+      kind: Rule
+      services:
+        - name: microservice-api-spring-boot-main
+          port: 80
+```
+
+And apply it with `kubectl apply -f ingress/traefik-application-ingress-routes.yml`
+
+
+## Automatically creating the Route53 A record based on the Traefik ELB in GitHub Actions
+
+Now creating the Route53 record manually isn't what we should aim for. Instead let's use AWS CLI to do that for us.
+
+> see https://stackoverflow.com/questions/71438625/create-route53-hosted-zone-a-record-dynamically-from-ci-based-on-previously-prov/71438626#71438626
+
+Here's a starting point https://aws.amazon.com/premiumsupport/knowledge-center/alias-resource-record-set-route53-cli/
+
+But we don't want to do this using a static file like with the proposed `--change-batch file://sample.json` - instead we want to have it more dynamic so we can use a command inside our GitHub Actions workflow.
+
+The idea is derived from this so answer https://stackoverflow.com/a/49228748/4964553, where we can simply use the json snippet inline without an extra file.
+
+We also want to have an idempotent solution which we can run 1 or many times in our GitHub Actions CI. Therefore we use the `"Action" : "UPSERT"` (see https://aws.amazon.com/premiumsupport/knowledge-center/simple-resource-record-route53-cli/).
+
+```yaml
+          echo "--- Creating or updating ('UPSERT') Route53 hosted zone A record to point to ELB Traefik (see https://aws.amazon.com/premiumsupport/knowledge-center/simple-resource-record-route53-cli/)"
+          echo "--- Creating Route53 hosted zone record (mind to wrap the variables in double quotes in order to get them evaluated, see https://stackoverflow.com/a/49228748/4964553)"
+          aws route53 change-resource-record-sets \
+            --hosted-zone-id $ROUTE53_DOMAIN_HOSTED_ZONE_ID \
+            --change-batch '
+            {
+              "Comment": "Create or update Route53 hosted zone A record to point to ELB Traefik is configured to"
+              ,"Changes": [{
+                "Action"              : "UPSERT"
+                ,"ResourceRecordSet"  : {
+                  "Name"              : "*.'"$ROUTE53_DOMAIN_NAME"'"
+                  ,"Type"             : "A"
+                  ,"AliasTarget": {
+                      "HostedZoneId": "'"$ELB_HOSTED_ZONE_ID"'",
+                      "DNSName": "dualstack.'"$ELB_URL"'",
+                      "EvaluateTargetHealth": true
+                  }
+                }
+              }]
+            }
+            '
+```
+
+> Using variables inside the json provided to the `--change-batch` parameter, we need to use single quotes and open them up immediately after (also see https://stackoverflow.com/a/49228748/4964553)
+
+As you can see, we need to configure 4 variables to make this command run:
+
+1. `$ROUTE53_DOMAIN_HOSTED_ZONE_ID`: This is the hosted zone id of your Route53 domain you need to register before (the registration itself is a manual step)
+2. `$ROUTE53_DOMAIN_NAME`: Your Route53 registered domain name. As we want all routing to be done by Traefik, we can configure a wildcard record here using `*.$ROUTE53_DOMAIN_NAME`
+3. `$ELB_HOSTED_ZONE_ID`: [A different hosted zone id than your domain!](https://stackoverflow.com/a/59584444/4964553). This is the hosted zone id of the Elastic Load Balancer, which gets provisioned through the Traefik Service deployment (via Helm).
+4. `$ELB_URL`: The ELB url of the Traefik Service. We need to preface it with `dualstack.` in order to make it work (see https://docs.aws.amazon.com/Route53/latest/APIReference/API_AliasTarget.html)
+
+Obtaining all those variables isn't trivial. We can start with the Route53 domain name, we need to configure as a static GitHub Actions environment varialbe at the top of our [provision.yml](.github/workflows/provision.yml):
+
+```yaml
+name: provision
+
+on: [push]
+
+env:
+  ...
+  ROUTE53_DOMAIN_NAME: tekton-argocd.de
+...
+
+      - name: Create or update Route53 hosted zone A record to point to ELB Traefik is configured to
+        run: |
+          echo "--- Obtaining the Route53 domain's hosted zone id"
+          ROUTE53_DOMAIN_HOSTED_ZONE_ID="$(aws route53 list-hosted-zones-by-name | jq --arg name "$ROUTE53_DOMAIN_NAME." -r '.HostedZones | .[] | select(.Name=="\($name)") | .Id')"
+
+          echo "--- Obtaining the ELB hosted zone id"
+          echo "Therefore cutting the ELB url from the traefik k8s Service using cut (see https://stackoverflow.com/a/29903172/4964553)"
+          ELB_NAME="$(kubectl get service traefik -n default --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}' | cut -d "-" -f 1)"
+          echo "Extracting the hosted zone it using aws cli and jq (see https://stackoverflow.com/a/53230627/4964553)"
+          ELB_HOSTED_ZONE_ID="$(aws elb describe-load-balancers | jq --arg name "$ELB_NAME" -r '.LoadBalancerDescriptions | .[] | select(.LoadBalancerName=="\($name)") | .CanonicalHostedZoneNameID')"
+
+          echo "--- Obtaining the Elastic Load Balancer url as the A records AliasTarget"
+          ELB_URL="$(kubectl get service traefik -n default --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
+
+```
+
+
+## Expose Traefik dashboard as traefik.tekton-argocd.de
+
+https://doc.traefik.io/traefik/operations/dashboard/
+
+As we now have our Route53 record configuration in place to access our apps, we can also create a nice access to our Traefik dashboard to avoid the need of a manually started local `port-forward`:
+
+https://doc.traefik.io/traefik/getting-started/install-traefik/#exposing-the-traefik-dashboard
+
+Therefore let't create a `IngressRoute` for the Traefik dashboard at [ingress/traefik-dashboard.yml](ingress/traefik-dashboard.yml):
+
+```yaml
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: dashboard
+spec:
+  entryPoints:
+    - web
+  routes:
+    - match: Host(`traefik.tekton-argocd.de`)
+      kind: Rule
+      services:
+        - name: api@internal
+          kind: TraefikService
+```
+
+Now install it with:
+
+```shell
+kubectl apply -f ingress/traefik-dashboard.yml
+```
+
+
+We also directly expose our nice Traefik url traefik.tekton-argocd.de as GitHub Actions Environment:
+
+```yaml
+    environment:
+      name: traefik-eks-url
+      url: ${{ steps.traefik-expose.outputs.traefik_url }}
+
+...
+
+      - name: Expose Traefik url as GitHub environment
+        id: traefik-expose
+        run: |
+          echo "--- Apply Traefik-ception IngressRule"
+          kubectl apply -f ingress/traefik-dashboard.yml
+          
+          echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
+          until kubectl get service/traefik -n default --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
+
+          TRAEFIK_URL="http://traefik.$ROUTE53_DOMAIN_NAME"
+          echo "All Services should be accessible through Traefik Ingress at $TRAEFIK_URL - creating GitHub Environment"
+          echo "::set-output name=traefik_url::$TRAEFIK_URL"
+```
+
+Now Traefik should be accessible at http://traefik.tekton-argocd.de also through our pipeline.
+
+
+
+
+
+# Tekton on EKS
 
 https://tekton.dev/docs/getting-started/
 
-Buildpacks: https://buildpacks.io/docs/tools/tekton/
+## Tekton Dashboard
+
+https://tekton.dev/docs/dashboard/
+
+Install it with:
+
+```shell
+kubectl apply --filename https://github.com/tektoncd/dashboard/releases/latest/download/tekton-dashboard-release.yaml
+```
+
+Now as we already ran some Tasks let's have a look into the Tekton dashboard:
+
+```shell
+kubectl proxy --port=8080
+```
+
+Then open your Browser at http://localhost:8080/api/v1/namespaces/tekton-pipelines/services/tekton-dashboard:http/proxy/
 
 
-### Tekton Pipelines
+### Expose Tekton Dashboard through Traefik
+
+So let's use Ingress with our Traefik and the nice Route53 domain & wildcard record to route from tekton.tekton-argocd.de. Simply create an Traefik `IngressRoute` as described in  [ingress/tekton-dashboard.yml](ingress/tekton-dashboard.yml):
+
+```yaml
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: tekton-dashboard
+  namespace: tekton-pipelines
+spec:
+  entryPoints:
+    - web
+  routes:
+    - kind: Rule
+      match: Host(`tekton.tekton-argocd.de`)
+      services:
+        - name: tekton-dashboard
+          port: 9097
+```
+
+Apply it with `kubectl apply -f ingress/tekton-dashboard.yml` and you should be able to access the Tekton dashboard already at http://tekton.tekton-argocd.de:
+
+![tekton-dashboard-traefik](screenshots/tekton-dashboard-traefik.png)
+
+
+### Grab the Tekton Dashboard URL and populate as GitHub Environment
+
+Now that our AWS ELB is provisioned we can finally grad it's URL with:
+
+```shell
+kubectl get service tekton-dashboard-external-svc-manual -n tekton-pipelines --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}'
+```
+
+Then it's easy to use the output and create a GitHub step variable, which is used in the GitHub Environment definition at the top of the job:
+
+```yaml
+echo "--- Create GitHub environment var"
+DASHBOARD_HOST=$(kubectl get service tekton-dashboard-external-svc-manual -n tekton-pipelines --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+echo "The Tekton dashboard is accessible at $DASHBOARD_HOST - creating GitHub Environment"
+echo "::set-output name=dashboard_host::http://$DASHBOARD_HOST"
+```
+
+
+
+## Tekton Pipelines
 
 https://tekton.dev/docs/getting-started/#installation
 
@@ -281,71 +644,8 @@ tkn taskrun logs --last -f
 ```
 
 
-# Tekton Dashboard
 
-https://tekton.dev/docs/dashboard/
-
-Install it with:
-
-```shell
-kubectl apply --filename https://github.com/tektoncd/dashboard/releases/latest/download/tekton-dashboard-release.yaml
-```
-
-Now as we already ran some Tasks let's have a look into the Tekton dashboard:
-
-```shell
-kubectl proxy --port=8080
-```
-
-Then open your Browser at http://localhost:8080/api/v1/namespaces/tekton-pipelines/services/tekton-dashboard:http/proxy/
-
-
-### Expose Tekton Dashboard through Traefik
-
-So let's use Ingress with our Traefik and the nice Route53 domain & wildcard record to route from tekton.tekton-argocd.de. Simply create an Traefik `IngressRoute` as described in  [ingress/tekton-dashboard.yml](ingress/tekton-dashboard.yml):
-
-```yaml
-apiVersion: traefik.containo.us/v1alpha1
-kind: IngressRoute
-metadata:
-  name: tekton-dashboard
-  namespace: tekton-pipelines
-spec:
-  entryPoints:
-    - web
-  routes:
-    - kind: Rule
-      match: Host(`tekton.tekton-argocd.de`)
-      services:
-        - name: tekton-dashboard
-          port: 9097
-```
-
-Apply it with `kubectl apply -f ingress/tekton-dashboard.yml` and you should be able to access the Tekton dashboard already at http://tekton.tekton-argocd.de:
-
-![tekton-dashboard-traefik](screenshots/tekton-dashboard-traefik.png)
-
-
-### Grab the Tekton Dashboard URL and populate as GitHub Environment
-
-Now that our AWS ELB is provisioned we can finally grad it's URL with:
-
-```shell
-kubectl get service tekton-dashboard-external-svc-manual -n tekton-pipelines --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}'
-```
-
-Then it's easy to use the output and create a GitHub step variable, which is used in the GitHub Environment definition at the top of the job:
-
-```yaml
-echo "--- Create GitHub environment var"
-DASHBOARD_HOST=$(kubectl get service tekton-dashboard-external-svc-manual -n tekton-pipelines --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')
-echo "The Tekton dashboard is accessible at $DASHBOARD_HOST - creating GitHub Environment"
-echo "::set-output name=dashboard_host::http://$DASHBOARD_HOST"
-```
-
-
-
-# Cloud Native Buildpacks
+## Cloud Native Buildpacks with Tekton
 
 https://buildpacks.io/docs/tools/tekton/
 
@@ -777,9 +1077,7 @@ Now our Pipeline should run faster then before, since the Maven cache is used:
 
 
 
-
-
-# Integrate Tekton on EKS with GitLab.com
+# Integrate Tekton on EKS with GitLab
 
 How to trigger Tekton `PipelineRun` from GitLab?
 
@@ -1814,154 +2112,21 @@ There's maybe one thing that could be considered as downside: One logic pipeline
 
 
 
-# Q & A
-
-### Pod gives message: '0/2 nodes are available: 2 node(s) had volume node affinity conflict.'
-
-The Tekton pipeline failed and I had to dig into the Pod logs to find the error ([see this log](http://abd1c6f235c9642bf9d4cdf632962298-1232135946.eu-central-1.elb.amazonaws.com/#/namespaces/default/pipelineruns/buildpacks-test-pipeline-run-mdbh5?pipelineTask=fetch-repository&view=pod)):
-
-![node-volume-node-affinity-conflict](screenshots/node-volume-node-affinity-conflict.png)
-
-As described in https://stackoverflow.com/a/55514852/4964553 and the section `Statefull applications` in https://vorozhko.net/120-days-of-aws-eks-kubernetes-in-staging two nodes are provisioned on other AWS availability zones as the persistent volume (PV), which is created by applying our PersistendVolumeClaim in [buildpacks-source-pvc.yml](tekton/misc/buildpacks-source-pvc.yml).
-
-To double check that, you need to look into/describe your nodes:
-
-```shell
-k get nodes
-NAME                                             STATUS   ROLES    AGE     VERSION
-ip-172-31-10-186.eu-central-1.compute.internal   Ready    <none>   2d16h   v1.21.5-eks-bc4871b
-ip-172-31-20-83.eu-central-1.compute.internal    Ready    <none>   2d16h   v1.21.5-eks-bc4871b
-```
-
-and have a look at the `Label` section:
-
-```shell
-$ k describe node ip-172-77-88-99.eu-central-1.compute.internal
-Name:               ip-172-77-88-99.eu-central-1.compute.internal
-Roles:              <none>
-Labels:             beta.kubernetes.io/arch=amd64
-                    beta.kubernetes.io/instance-type=t2.medium
-                    beta.kubernetes.io/os=linux
-                    failure-domain.beta.kubernetes.io/region=eu-central-1
-                    failure-domain.beta.kubernetes.io/zone=eu-central-1b
-                    kubernetes.io/arch=amd64
-                    kubernetes.io/hostname=ip-172-77-88-99.eu-central-1.compute.internal
-                    kubernetes.io/os=linux
-                    node.kubernetes.io/instance-type=t2.medium
-                    topology.kubernetes.io/region=eu-central-1
-                    topology.kubernetes.io/zone=eu-central-1b
-Annotations:        node.alpha.kubernetes.io/ttl: 0
-...
-```
-
-In my case the node `ip-172-77-88-99.eu-central-1.compute.internal` has `failure-domain.beta.kubernetes.io/region` defined as `eu-central-1` and the az with `failure-domain.beta.kubernetes.io/zone` to `eu-central-1b``
-
-And the other node defines az `eu-central-1a`:
-
-```shell
-$ k describe nodes ip-172-31-10-186.eu-central-1.compute.internal
-Name:               ip-172-31-10-186.eu-central-1.compute.internal
-Roles:              <none>
-Labels:             beta.kubernetes.io/arch=amd64
-                    beta.kubernetes.io/instance-type=t2.medium
-                    beta.kubernetes.io/os=linux
-                    failure-domain.beta.kubernetes.io/region=eu-central-1
-                    failure-domain.beta.kubernetes.io/zone=eu-central-1a
-                    kubernetes.io/arch=amd64
-                    kubernetes.io/hostname=ip-172-31-10-186.eu-central-1.compute.internal
-                    kubernetes.io/os=linux
-                    node.kubernetes.io/instance-type=t2.medium
-                    topology.kubernetes.io/region=eu-central-1
-                    topology.kubernetes.io/zone=eu-central-1a
-Annotations:        node.alpha.kubernetes.io/ttl: 0
-...
-```
-
-Now looking into our `PersistentVolume` automatically provisioned after applying our `PersistentVolumeClaim` with [buildpacks-source-pvc.yml](tekton/misc/buildpacks-source-pvc.yml), we see the problem already:
-
-```shell
-$ k get pv
-NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                           STORAGECLASS   REASON   AGE
-pvc-93650993-6154-4bd0-bd1c-6260e7df49d3   1Gi        RWO            Delete           Bound    default/buildpacks-source-pvc   gp2                     21d
-
-$ k describe pv pvc-93650993-6154-4bd0-bd1c-6260e7df49d3
-Name:              pvc-93650993-6154-4bd0-bd1c-6260e7df49d3
-Labels:            topology.kubernetes.io/region=eu-central-1
-                   topology.kubernetes.io/zone=eu-central-1c
-Annotations:       kubernetes.io/createdby: aws-ebs-dynamic-provisioner
-...
-```
-
-The `PersistentVolume` was provisioned to `topology.kubernetes.io/zone` in az `eu-central-1c`, which makes our Pods complain about not finding their volume - since they are in a completely different az.
-
-As [stated in the Kubernetes docs](https://kubernetes.io/docs/concepts/storage/storage-classes/#allowed-topologies) one solution to the problem is to add a `allowedTopologies` configuration to the `StorageClass` like this:
-
-```yaml
-apiVersion: storage.k8s.io/v1
-kind: StorageClass
-metadata:
-  name: gp2
-parameters:
-  fsType: ext4
-  type: gp2
-provisioner: kubernetes.io/aws-ebs
-reclaimPolicy: Delete
-volumeBindingMode: WaitForFirstConsumer
-allowedTopologies:
-- matchLabelExpressions:
-  - key: failure-domain.beta.kubernetes.io/zone
-    values:
-    - eu-central-1a
-    - eu-central-1b
-```
-
-If you already provisioned a EKS cluster like me, you need to show your already defined `StorageClass` with
-
-```
-k get storageclasses gp2 -o yaml
-```
-
-and add the `allowedTopologies` configuration with:
-
-```
-k apply -f tekton/misc/storage-class.yml
-```
-
-As you see the `allowedTopologies` configuration defines that the `failure-domain.beta.kubernetes.io/zone` of the `PersistentVolume` must be either in `eu-central-1a` or `eu-central-1b` - not `eu-central-1c`!
-
-Next apply this `StorageClass` and delete the `PersistentVolumeClaim`. Now add `storageClassName: gp2` to the PersistendVolumeClaim definition in [buildpacks-source-pvc.yml](tekton/misc/buildpacks-source-pvc.yml):
-
-```yaml
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: buildpacks-source-pvc
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 500Mi
-  storageClassName: gp2
-```
-
-and then re-applying it will resolve the problem.
-
-
-
 
 # GitOps with ArgoCD
 
-## ArgoCD Installation & Dashboard access
+We want to implement [the "Pull-based" deployment approach in GitOps](https://www.gitops.tech/) using ArgoCD.
 
-#### Install Argo CLI
+
+## Install Argo CLI
 
 ```shell
 brew install argocd
 ```
 
+You can [install ArgoCD as described in the getting started guide](https://argo-cd.readthedocs.io/en/stable/getting_started/) - but that will lead you to some problems together with Traefik: 
 
-#### Access The Argo CD API Server & Dashboard
+## Access The Argo CD API Server & Dashboard
 
 You can expose the ArgoCD API Server via Loadbalancer, Ingress or port forwarding to localhost: https://argo-cd.readthedocs.io/en/stable/getting_started/#3-access-the-argo-cd-api-server
 
@@ -2018,7 +2183,7 @@ With this approach we also don't need to `kubectl patch svc argocd-server -n arg
 Apply it with `kubectl apply -f ingress/argocd-dashboard.yml`. Now ArgoCD should be accessible via http://argocd.tekton-argocd.de
 
 
-#### Why Kustomize is a great way to manage the ArgoCD installation & custom configuration
+## Why Kustomize is a great way to manage the ArgoCD installation & custom configuration
 
 If [we installed ArgoCD as described in the getting started guide](https://argo-cd.readthedocs.io/en/stable/getting_started/) by using `kubectl apply -f` we will run into `HTTP 307` redirects! What's the problem here?
 
@@ -2108,7 +2273,7 @@ Now accessing https://argocd.tekton-argocd.de should open the ArgoCD dashboard a
 ![traefik-argocd-working-dashboard-access](screenshots/traefik-argocd-working-dashboard-access.png)
 
 
-#### Get admin password, login to argocd-server and change password
+## Get ArgoCD admin password, login to argocd-server and change password
 
 Obtain ArgoCD admin account's initial password
 
@@ -2147,6 +2312,8 @@ Using your Browser open `argocd.tekton-argocd.de` and accept the certificate war
 
 
 If you don't want [to deploy to a different Kubernetes cluster than the current one where Argo was installed](https://argo-cd.readthedocs.io/en/stable/getting_started/#5-register-a-cluster-to-deploy-apps-to-optional), then everything should be prepared to deploy our first application.
+
+
 
 
 ## ArgoCD installation & configuration within GitHub Actions
@@ -2207,6 +2374,9 @@ We should also configure a GitHub Actions environment for our ArgoCD dashboard (
 ![argo-dashboard-as-github-environment](screenshots/argo-dashboard-as-github-environment.png)
 
 
+# ArgoCD application deployment
+
+Even with ArgoCD there are two ways on how to deploy our application: push-based and pull-based.
 
 ## ArgoCD application deployment (push)
 
@@ -3212,46 +3382,13 @@ spec:
 ```
 
 
+## Add Pipeline Task to create `IngressRoutes` dynamically based on build & deployed application
 
-### Refactor yq replacement of branch name in Deployment, Service & IngressRoute to Kustomize 
+The `traefik-ingress-route.yml` will also be added to our application configuration repository https://gitlab.com/jonashackt/microservice-api-spring-boot-config in the `deployment` directory. So now it can be also deployed using Argo.
 
-In order to replace all needed fields in Deployment, Service and IngressRoute using the refactored replace task we still have 3 big tasks with lot's of yq expressions, we need to maintain in the future:
+Now we simply use our [replace-yaml-value-with-yq.yml](tekton/tasks/replace-yaml-value-with-yq.yml) a 3rd time in our pipeline:
 
-```
-    - name: replace-deployment-name-branch-image
-      taskRef:
-        name: replace-yaml-value-with-yq
-      runAfter:
-        - switch-config-repository-branch
-      workspaces:
-        - name: source
-          workspace: config-workspace
-      params:
-        - name: YQ_EXPRESSIONS
-          value:
-            - ".metadata.name = \"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)\""
-            - ".spec.template.spec.containers[0].image = \"$(params.IMAGE):$(params.SOURCE_REVISION)\""
-            - ".spec.selector.matchLabels.branch = \"$(params.SOURCE_BRANCH)\""
-            - ".spec.template.metadata.labels.branch = \"$(params.SOURCE_BRANCH)\""
-        - name: FILE_PATH
-          value: "./deployment/deployment.yml"
-
-    - name: replace-service-name-branch
-      taskRef:
-        name: replace-yaml-value-with-yq
-      runAfter:
-        - replace-deployment-name-branch-image
-      workspaces:
-        - name: source
-          workspace: config-workspace
-      params:
-        - name: YQ_EXPRESSIONS
-          value:
-            - ".metadata.name = \"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)\""
-            - ".spec.selector.branch = \"$(params.SOURCE_BRANCH)\""
-        - name: FILE_PATH
-          value: "./deployment/service.yml"
-
+```yaml
     - name: replace-ingress-name-route
       taskRef:
         name: replace-yaml-value-with-yq
@@ -3269,6 +3406,22 @@ In order to replace all needed fields in Deployment, Service and IngressRoute us
         - name: FILE_PATH
           value: "./deployment/traefik-ingress-route.yml"
 ```
+
+Now ArgoCD should deploy the Traefik `IngressRoute` which matches the Service and Branch name exactly to our cluster:
+
+![argocd-traefik-ingressroute-deployment](screenshots/argocd-traefik-ingressroute-deployment.png)
+
+Try to access the app after a successful pipeline run using your Browser:
+
+![traefik-route53-served-service](screenshots/traefik-route53-served-service.png)
+
+
+
+
+
+### Refactor yq replacement of branch name in Deployment, Service & IngressRoute to Kustomize 
+
+In order to replace all needed fields in Deployment, Service and IngressRoute using the refactored replace task we still have 3 big tasks with lot's of yq expressions, we need to maintain in the future.
 
 But we can switch over to Kustomize - see https://stackoverflow.com/questions/71704023/how-to-use-kustomize-to-configure-traefik-2-x-ingressroute-metadata-name-spec
 
@@ -3437,304 +3590,6 @@ Now if we run our Pipeline using different branches in GitLab, we should see our
 
 
 
-# EKS/K8s Ingress for Services using Traefik v2
-
-Right now we have an Nginx-based Ingress for our Tekton Trigger EventListener, but the Tekton Dashboard and the ArgoCD server/dashboard are exposed as a simple Service of type `LoadBalancer`, who create multiple classic Elastic Load Balancers in AWS:
-
-![elastic-loadbalancers](screenshots/elastic-loadbalancers.png)
-
-In the section `LoadBalancer for every http service` of https://blog.pipetail.io/posts/2020-05-04-most-common-mistakes-k8s/ the problem is described as: 
-
-> resources might get expensive (external static ipv4 address, compute, per-second pricing ,...)
-
-To prevent that one could use the concept of an api gateway or Ingress in K8s terms. One of the best solutions out there is Traefik https://traefik.io/
-
-
-## Choose one of 3 ways to install & use Traefik in K8s
-
-As of the docs there are 3 ways on how to use Traefik in Kubernetes:
-
-1. IngressRoute Custom Resource Definition (CRD) for Kubernetes: https://doc.traefik.io/traefik/providers/kubernetes-crd/
-2. "old familiar" Ingress Controller as the Kubernetes Ingress provider: https://doc.traefik.io/traefik/providers/kubernetes-ingress/
-3. Experimental Kubernetes Gateway API: https://doc.traefik.io/traefik/providers/kubernetes-gateway/
-
-CRDs seem to be the current defacto standard way to extend Kubernetes (by extending the Kubernetes API): https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/
-
-So let's go with the IngressRoute CRD. There's also a full guide including Let's Encrypt in the Traefik docs https://doc.traefik.io/traefik/user-guides/crd-acme/
-
-
-## Install Traefik as KubernetesCRD with Helm
-
-Install Traefik via Helm: https://doc.traefik.io/traefik/getting-started/install-traefik/#use-the-helm-chart from it's chart at https://github.com/traefik/traefik-helm-chart:
-
-> This chart bootstraps Traefik version 2 as a Kubernetes ingress controller, using Custom Resources IngressRoute: https://docs.traefik.io/providers/kubernetes-crd/
-
-We do all this right inside our GitHub Actions workflow [provision.yml](.github/workflows/provision.yml):
-
-```yaml
-      - name: Install Traefik via Helm
-        run: |
-          echo "--- Install Traefik via Helm (which is already installed in GitHub Actions environment https://github.com/actions/virtual-environments)
-          helm repo add traefik https://helm.traefik.io/traefik
-          helm repo update
-          helm upgrade -i traefik traefik/traefik
-```
-
-But instead of `helm install traefik traefik/traefik` we use `helm upgrade -i traefik traefik/traefik` to prevent the error `Error: INSTALLATION FAILED: cannot re-use a name that is still in use`(see https://stackoverflow.com/a/70465191/4964553).
-
-Now Traefik is already deployed and we can see it's Service (aka the Traefik Ingress Controller) in k9s for example:
-
-![traefik-k9s-service](screenshots/traefik-k9s-service.png)
-
-You may temporarily expose the dashboard with a local `kubectl port-forward` like this (but we will create a nice domain later also):
-
-```
-kubectl port-forward $(kubectl get pods --selector "app.kubernetes.io/name=traefik" --output=name) 9000:9000
-```
-
-And access it at http://127.0.0.1:9000/dashboard/
-
-
-## IngressRoutes for Services to be available via Traefik
-
-Now let's configure the `IngressRoute` objects to get our Services accessible through Traefik
-
-https://doc.traefik.io/traefik/user-guides/crd-acme/#traefik-routers
-
-https://doc.traefik.io/traefik/routing/routers/#rule
-
-So start by creating our first `IngressRoute` definition - right now only statically to see it working inside [traefik-application-ingress-routes.yml](ingress/traefik-application-ingress-routes.yml):
-
-```yaml
-apiVersion: traefik.containo.us/v1alpha1
-kind: IngressRoute
-metadata:
-  name: microservice-api-spring-boot-ingressroute
-  namespace: default
-spec:
-  entryPoints:
-    - web
-  routes:
-    - match: Host(`microservice-api-spring-boot-main`)
-      kind: Rule
-      services:
-        - name: microservice-api-spring-boot-main
-          port: 80
-```
-
-Apply it with `kubectl apply -f ingress/traefik-application-ingress-routes.yml`
-
-Finally use a REST client like Postman to access our Service:
-
-![traefik-postman-first-ingressroute-service-call](screenshots/traefik-postman-first-ingressroute-service-call.png)
-
-You need to provide the `Host:microservice-api-spring-boot-main` header in your request in order to make the call work.
-
-
-
-## Testing DNS-based Service availability on AWS EKS with Traefik
-
-First create a Domain with AWS Route53 - this will take a while & you should finally receive a mail, that your domain was registered successfully (this took around 20mins for me).
-
-When we have our domain ready - for me this is tekton-argocd.de - we can configure the Route53 hosted zone with the correct records.
-
-See https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/routing-to-elb-load-balancer.html#routing-to-elb-load-balancer-configuring
-
-![route53-hostedzone-record](screenshots/route53-hostedzone-record.png)
-
-
-Let's test it by enhancing our `IngressRoute` inside [traefik-application-ingress-routes.yml](ingress/traefik-application-ingress-routes.yml):
-
-```yaml
-apiVersion: traefik.containo.us/v1alpha1
-kind: IngressRoute
-metadata:
-  name: microservice-api-spring-boot-ingressroute
-  namespace: default
-spec:
-  entryPoints:
-    - web
-  routes:
-    - match: Host(`microservice-api-spring-boot-main.tekton-argocd.de`)
-      kind: Rule
-      services:
-        - name: microservice-api-spring-boot-main
-          port: 80
-```
-
-And apply it with `kubectl apply -f ingress/traefik-application-ingress-routes.yml`
-
-
-## Automatically creating the Route53 A record based on the Traefik ELB in GitHub Actions
-
-Now creating the Route53 record manually isn't what we should aim for. Instead let's use AWS CLI to do that for us.
-
-> see https://stackoverflow.com/questions/71438625/create-route53-hosted-zone-a-record-dynamically-from-ci-based-on-previously-prov/71438626#71438626
-
-Here's a starting point https://aws.amazon.com/premiumsupport/knowledge-center/alias-resource-record-set-route53-cli/
-
-But we don't want to do this using a static file like with the proposed `--change-batch file://sample.json` - instead we want to have it more dynamic so we can use a command inside our GitHub Actions workflow.
-
-The idea is derived from this so answer https://stackoverflow.com/a/49228748/4964553, where we can simply use the json snippet inline without an extra file.
-
-We also want to have an idempotent solution which we can run 1 or many times in our GitHub Actions CI. Therefore we use the `"Action" : "UPSERT"` (see https://aws.amazon.com/premiumsupport/knowledge-center/simple-resource-record-route53-cli/).
-
-```yaml
-          echo "--- Creating or updating ('UPSERT') Route53 hosted zone A record to point to ELB Traefik (see https://aws.amazon.com/premiumsupport/knowledge-center/simple-resource-record-route53-cli/)"
-          echo "--- Creating Route53 hosted zone record (mind to wrap the variables in double quotes in order to get them evaluated, see https://stackoverflow.com/a/49228748/4964553)"
-          aws route53 change-resource-record-sets \
-            --hosted-zone-id $ROUTE53_DOMAIN_HOSTED_ZONE_ID \
-            --change-batch '
-            {
-              "Comment": "Create or update Route53 hosted zone A record to point to ELB Traefik is configured to"
-              ,"Changes": [{
-                "Action"              : "UPSERT"
-                ,"ResourceRecordSet"  : {
-                  "Name"              : "*.'"$ROUTE53_DOMAIN_NAME"'"
-                  ,"Type"             : "A"
-                  ,"AliasTarget": {
-                      "HostedZoneId": "'"$ELB_HOSTED_ZONE_ID"'",
-                      "DNSName": "dualstack.'"$ELB_URL"'",
-                      "EvaluateTargetHealth": true
-                  }
-                }
-              }]
-            }
-            '
-```
-
-> Using variables inside the json provided to the `--change-batch` parameter, we need to use single quotes and open them up immediately after (also see https://stackoverflow.com/a/49228748/4964553)
-
-As you can see, we need to configure 4 variables to make this command run:
-
-1. `$ROUTE53_DOMAIN_HOSTED_ZONE_ID`: This is the hosted zone id of your Route53 domain you need to register before (the registration itself is a manual step)
-2. `$ROUTE53_DOMAIN_NAME`: Your Route53 registered domain name. As we want all routing to be done by Traefik, we can configure a wildcard record here using `*.$ROUTE53_DOMAIN_NAME`
-3. `$ELB_HOSTED_ZONE_ID`: [A different hosted zone id than your domain!](https://stackoverflow.com/a/59584444/4964553). This is the hosted zone id of the Elastic Load Balancer, which gets provisioned through the Traefik Service deployment (via Helm).
-4. `$ELB_URL`: The ELB url of the Traefik Service. We need to preface it with `dualstack.` in order to make it work (see https://docs.aws.amazon.com/Route53/latest/APIReference/API_AliasTarget.html)
-
-Obtaining all those variables isn't trivial. We can start with the Route53 domain name, we need to configure as a static GitHub Actions environment varialbe at the top of our [provision.yml](.github/workflows/provision.yml):
-
-```yaml
-name: provision
-
-on: [push]
-
-env:
-  ...
-  ROUTE53_DOMAIN_NAME: tekton-argocd.de
-...
-
-      - name: Create or update Route53 hosted zone A record to point to ELB Traefik is configured to
-        run: |
-          echo "--- Obtaining the Route53 domain's hosted zone id"
-          ROUTE53_DOMAIN_HOSTED_ZONE_ID="$(aws route53 list-hosted-zones-by-name | jq --arg name "$ROUTE53_DOMAIN_NAME." -r '.HostedZones | .[] | select(.Name=="\($name)") | .Id')"
-
-          echo "--- Obtaining the ELB hosted zone id"
-          echo "Therefore cutting the ELB url from the traefik k8s Service using cut (see https://stackoverflow.com/a/29903172/4964553)"
-          ELB_NAME="$(kubectl get service traefik -n default --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}' | cut -d "-" -f 1)"
-          echo "Extracting the hosted zone it using aws cli and jq (see https://stackoverflow.com/a/53230627/4964553)"
-          ELB_HOSTED_ZONE_ID="$(aws elb describe-load-balancers | jq --arg name "$ELB_NAME" -r '.LoadBalancerDescriptions | .[] | select(.LoadBalancerName=="\($name)") | .CanonicalHostedZoneNameID')"
-
-          echo "--- Obtaining the Elastic Load Balancer url as the A records AliasTarget"
-          ELB_URL="$(kubectl get service traefik -n default --output=jsonpath='{.status.loadBalancer.ingress[0].hostname}')"
-
-```
-
-
-## Expose Traefik dashboard as traefik.tekton-argocd.de
-
-https://doc.traefik.io/traefik/operations/dashboard/
-
-As we now have our Route53 record configuration in place to access our apps, we can also create a nice access to our Traefik dashboard to avoid the need of a manually started local `port-forward`:
-
-https://doc.traefik.io/traefik/getting-started/install-traefik/#exposing-the-traefik-dashboard
-
-Therefore let't create a `IngressRoute` for the Traefik dashboard at [ingress/traefik-dashboard.yml](ingress/traefik-dashboard.yml):
-
-```yaml
-apiVersion: traefik.containo.us/v1alpha1
-kind: IngressRoute
-metadata:
-  name: dashboard
-spec:
-  entryPoints:
-    - web
-  routes:
-    - match: Host(`traefik.tekton-argocd.de`)
-      kind: Rule
-      services:
-        - name: api@internal
-          kind: TraefikService
-```
-
-Now install it with:
-
-```shell
-kubectl apply -f ingress/traefik-dashboard.yml
-```
-
-
-We also directly expose our nice Traefik url traefik.tekton-argocd.de as GitHub Actions Environment:
-
-```yaml
-    environment:
-      name: traefik-eks-url
-      url: ${{ steps.traefik-expose.outputs.traefik_url }}
-
-...
-
-      - name: Expose Traefik url as GitHub environment
-        id: traefik-expose
-        run: |
-          echo "--- Apply Traefik-ception IngressRule"
-          kubectl apply -f ingress/traefik-dashboard.yml
-          
-          echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
-          until kubectl get service/traefik -n default --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
-
-          TRAEFIK_URL="http://traefik.$ROUTE53_DOMAIN_NAME"
-          echo "All Services should be accessible through Traefik Ingress at $TRAEFIK_URL - creating GitHub Environment"
-          echo "::set-output name=traefik_url::$TRAEFIK_URL"
-```
-
-Now Traefik should be accessible at http://traefik.tekton-argocd.de also through our pipeline.
-
-
-
-## Add Pipeline Task to create `IngressRoutes` dynamically based on build & deployed application
-
-The `traefik-ingress-route.yml` will also be added to our application configuration repository https://gitlab.com/jonashackt/microservice-api-spring-boot-config in the `deployment` directory. So now it can be also deployed using Argo.
-
-Now we simply use our [replace-yaml-value-with-yq.yml](tekton/tasks/replace-yaml-value-with-yq.yml) a 3rd time in our pipeline:
-
-```yaml
-    - name: replace-ingress-name-route
-      taskRef:
-        name: replace-yaml-value-with-yq
-      runAfter:
-        - replace-service-name-branch
-      workspaces:
-        - name: source
-          workspace: config-workspace
-      params:
-        - name: YQ_EXPRESSIONS
-          value:
-            - ".metadata.name = \"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)-ingressroute\""
-            - ".spec.routes[0].match = \"Host(`$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH).$(params.TRAEFIK_DOMAIN)`)\""
-            - ".spec.routes[0].services[0].name = \"$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH)\""
-        - name: FILE_PATH
-          value: "./deployment/traefik-ingress-route.yml"
-```
-
-Now ArgoCD should deploy the Traefik `IngressRoute` which matches the Service and Branch name exactly to our cluster:
-
-![argocd-traefik-ingressroute-deployment](screenshots/argocd-traefik-ingressroute-deployment.png)
-
-Try to access the app after a successful pipeline run using your Browser:
-
-![traefik-route53-served-service](screenshots/traefik-route53-served-service.png)
-
-
 
 
 # Renovate should keep Tekton and Argo k8s manifests up-to-date
@@ -3774,6 +3629,146 @@ Inside our GitHub Actions workflow [provision.yml](.github/workflows/provision.y
         run: |
           kubectl apply -k installation/tekton-tasks
 ```
+
+
+
+# Q & A
+
+### Pod gives message: '0/2 nodes are available: 2 node(s) had volume node affinity conflict.'
+
+> see https://stackoverflow.com/a/70782938/4964553
+
+The Tekton pipeline failed and I had to dig into the Pod logs to find the error ([see this log](http://abd1c6f235c9642bf9d4cdf632962298-1232135946.eu-central-1.elb.amazonaws.com/#/namespaces/default/pipelineruns/buildpacks-test-pipeline-run-mdbh5?pipelineTask=fetch-repository&view=pod)):
+
+![node-volume-node-affinity-conflict](screenshots/node-volume-node-affinity-conflict.png)
+
+As described in https://stackoverflow.com/a/55514852/4964553 and the section `Statefull applications` in https://vorozhko.net/120-days-of-aws-eks-kubernetes-in-staging two nodes are provisioned on other AWS availability zones as the persistent volume (PV), which is created by applying our PersistendVolumeClaim in [buildpacks-source-pvc.yml](tekton/misc/buildpacks-source-pvc.yml).
+
+To double check that, you need to look into/describe your nodes:
+
+```shell
+k get nodes
+NAME                                             STATUS   ROLES    AGE     VERSION
+ip-172-31-10-186.eu-central-1.compute.internal   Ready    <none>   2d16h   v1.21.5-eks-bc4871b
+ip-172-31-20-83.eu-central-1.compute.internal    Ready    <none>   2d16h   v1.21.5-eks-bc4871b
+```
+
+and have a look at the `Label` section:
+
+```shell
+$ k describe node ip-172-77-88-99.eu-central-1.compute.internal
+Name:               ip-172-77-88-99.eu-central-1.compute.internal
+Roles:              <none>
+Labels:             beta.kubernetes.io/arch=amd64
+                    beta.kubernetes.io/instance-type=t2.medium
+                    beta.kubernetes.io/os=linux
+                    failure-domain.beta.kubernetes.io/region=eu-central-1
+                    failure-domain.beta.kubernetes.io/zone=eu-central-1b
+                    kubernetes.io/arch=amd64
+                    kubernetes.io/hostname=ip-172-77-88-99.eu-central-1.compute.internal
+                    kubernetes.io/os=linux
+                    node.kubernetes.io/instance-type=t2.medium
+                    topology.kubernetes.io/region=eu-central-1
+                    topology.kubernetes.io/zone=eu-central-1b
+Annotations:        node.alpha.kubernetes.io/ttl: 0
+...
+```
+
+In my case the node `ip-172-77-88-99.eu-central-1.compute.internal` has `failure-domain.beta.kubernetes.io/region` defined as `eu-central-1` and the az with `failure-domain.beta.kubernetes.io/zone` to `eu-central-1b``
+
+And the other node defines az `eu-central-1a`:
+
+```shell
+$ k describe nodes ip-172-31-10-186.eu-central-1.compute.internal
+Name:               ip-172-31-10-186.eu-central-1.compute.internal
+Roles:              <none>
+Labels:             beta.kubernetes.io/arch=amd64
+                    beta.kubernetes.io/instance-type=t2.medium
+                    beta.kubernetes.io/os=linux
+                    failure-domain.beta.kubernetes.io/region=eu-central-1
+                    failure-domain.beta.kubernetes.io/zone=eu-central-1a
+                    kubernetes.io/arch=amd64
+                    kubernetes.io/hostname=ip-172-31-10-186.eu-central-1.compute.internal
+                    kubernetes.io/os=linux
+                    node.kubernetes.io/instance-type=t2.medium
+                    topology.kubernetes.io/region=eu-central-1
+                    topology.kubernetes.io/zone=eu-central-1a
+Annotations:        node.alpha.kubernetes.io/ttl: 0
+...
+```
+
+Now looking into our `PersistentVolume` automatically provisioned after applying our `PersistentVolumeClaim` with [buildpacks-source-pvc.yml](tekton/misc/buildpacks-source-pvc.yml), we see the problem already:
+
+```shell
+$ k get pv
+NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS   CLAIM                           STORAGECLASS   REASON   AGE
+pvc-93650993-6154-4bd0-bd1c-6260e7df49d3   1Gi        RWO            Delete           Bound    default/buildpacks-source-pvc   gp2                     21d
+
+$ k describe pv pvc-93650993-6154-4bd0-bd1c-6260e7df49d3
+Name:              pvc-93650993-6154-4bd0-bd1c-6260e7df49d3
+Labels:            topology.kubernetes.io/region=eu-central-1
+                   topology.kubernetes.io/zone=eu-central-1c
+Annotations:       kubernetes.io/createdby: aws-ebs-dynamic-provisioner
+...
+```
+
+The `PersistentVolume` was provisioned to `topology.kubernetes.io/zone` in az `eu-central-1c`, which makes our Pods complain about not finding their volume - since they are in a completely different az.
+
+As [stated in the Kubernetes docs](https://kubernetes.io/docs/concepts/storage/storage-classes/#allowed-topologies) one solution to the problem is to add a `allowedTopologies` configuration to the `StorageClass` like this:
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gp2
+parameters:
+  fsType: ext4
+  type: gp2
+provisioner: kubernetes.io/aws-ebs
+reclaimPolicy: Delete
+volumeBindingMode: WaitForFirstConsumer
+allowedTopologies:
+- matchLabelExpressions:
+  - key: failure-domain.beta.kubernetes.io/zone
+    values:
+    - eu-central-1a
+    - eu-central-1b
+```
+
+If you already provisioned a EKS cluster like me, you need to show your already defined `StorageClass` with
+
+```
+k get storageclasses gp2 -o yaml
+```
+
+and add the `allowedTopologies` configuration with:
+
+```
+k apply -f tekton/misc/storage-class.yml
+```
+
+As you see the `allowedTopologies` configuration defines that the `failure-domain.beta.kubernetes.io/zone` of the `PersistentVolume` must be either in `eu-central-1a` or `eu-central-1b` - not `eu-central-1c`!
+
+Next apply this `StorageClass` and delete the `PersistentVolumeClaim`. Now add `storageClassName: gp2` to the PersistendVolumeClaim definition in [buildpacks-source-pvc.yml](tekton/misc/buildpacks-source-pvc.yml):
+
+```yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: buildpacks-source-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Mi
+  storageClassName: gp2
+```
+
+and then re-applying it will resolve the problem.
+
+
+
 
 
 

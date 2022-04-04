@@ -286,10 +286,6 @@ jobs:
           kubectl apply -k tekton/misc
           kubectl apply -k tekton/pipelines
 
-          echo "--- Insert Tekton dashboard url into generic-gitlab-set-status Pipeline config and apply it (see https://stackoverflow.com/a/70890805/4964553)"
-          TEKTON_DASHBOARD_HOST="${{ steps.dashboard-expose.outputs.dashboard_host }}"
-          sed "s#{{TEKTON_DASHBOARD_HOST}}#$TEKTON_DASHBOARD_HOST#g" tekton/pipelines/generic-gitlab-set-status.yml | kubectl apply -f -
-
       - name: Run Tekton Buildpacks powered Pipeline by creating PipelineRun
         run: |
           echo "--- Trigger PipelineRun in Tekton / K8s"
