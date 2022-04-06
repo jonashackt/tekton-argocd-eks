@@ -203,6 +203,25 @@ spec:
         - name: argo-appproject
           value: apps2deploy
 
+    - name: create-gitlab-environment
+      taskRef:
+        name: gitlab-set-environment
+      runAfter:
+        - argo-create-app-sync-wait
+      params:
+        - name: "GITLAB_HOST_URL"
+          value: "https://$(params.GITLAB_HOST)"
+        - name: "REPO_FULL_NAME"
+          value: "$(params.REPO_PATH_ONLY)"
+        - name: "GITLAB_TOKEN_SECRET_NAME"
+          value: "gitlab-api-secret"
+        - name: "GITLAB_TOKEN_SECRET_KEY"
+          value: "token"
+        - name: "ENVIRONMENT_NAME"
+          value: "$(params.SOURCE_BRANCH)"
+        - name: "ENVIRONMENT_URL"
+          value: "http://$(params.PROJECT_NAME)-$(params.SOURCE_BRANCH).$(params.TRAEFIK_DOMAIN)"
+
   finally:
     - name: report-pipeline-failed-to-gitlab
       when:
