@@ -26,8 +26,6 @@ It is structured according to all tools used:
 │   └── ArgoCD related configuration
 ├── eks-deployment
 │   └── Pulumi configuration (TypeScript style)
-├── ingress
-│   └── Traefik IngressRoute configurations
 ├── tekton
 │   ├── install
 │   │   └── Tekton CRDs, Pipelines, Dashboard, Triggers etc. installation
@@ -39,6 +37,8 @@ It is structured according to all tools used:
 │   │   └── Tekton Tasks
 │   └── triggers
 │       └── Tekton Triggers Event Listener configuration
+├── traefik
+│   └── Traefik IngressRoute configurations
 ```
 
 
@@ -264,6 +264,36 @@ kubectl port-forward $(kubectl get pods --selector "app.kubernetes.io/name=traef
 And access it at http://127.0.0.1:9000/dashboard/
 
 
+#### Install Traefik using Helm with pinned version manageble through Renovate
+
+Right now our Traefik installation uses no pinned version and every new GitHub Actions workflow run simply uses the newest version of Traefik.
+
+So how can we use a pinned version with Helm? Simply [using `--version` isn't enough for us](https://stackoverflow.com/questions/51200917/how-to-install-a-specific-chart-version), since Renovate needs a dependency file to look at: https://docs.renovatebot.com/modules/manager/helm-values/
+
+But [there's another way](https://mjpitz.com/blog/2020/12/03/renovate-your-gitops/) to use a simple [Chart.yaml](traefik/install/Chart.yaml) to pin our version and have a manageble file for Renovate:
+
+```yaml
+apiVersion: v2
+type: application
+name: traefik
+version: 0.0.0 # unused
+appVersion: 0.0.0 # unused
+dependencies:
+  - name: traefik
+    repository: https://helm.traefik.io/traefik
+    version: 10.19.4
+```
+
+Now with the commands:
+
+```shell
+helm dependency update traefik/install
+helm upgrade -i traefik traefik/install
+```
+
+We can now install Traefik in a Renovate-ready way.
+
+
 ## IngressRoutes for Services to be available via Traefik
 
 Now let's configure the `IngressRoute` objects to get our Services accessible through Traefik
@@ -272,7 +302,7 @@ https://doc.traefik.io/traefik/user-guides/crd-acme/#traefik-routers
 
 https://doc.traefik.io/traefik/routing/routers/#rule
 
-So start by creating our first `IngressRoute` definition - right now only statically to see it working inside [traefik-application-ingress-routes.yml](ingress/traefik-application-ingress-routes.yml):
+So start by creating our first `IngressRoute` definition - right now only statically to see it working inside [traefik-application-ingress-routes.yml](traefik/traefik-application-ingress-routes.yml):
 
 ```yaml
 apiVersion: traefik.containo.us/v1alpha1
@@ -291,7 +321,7 @@ spec:
           port: 80
 ```
 
-Apply it with `kubectl apply -f ingress/traefik-application-ingress-routes.yml`
+Apply it with `kubectl apply -f traefik/traefik-application-ingress-routes.yml`
 
 Finally use a REST client like Postman to access our Service:
 
@@ -312,7 +342,7 @@ See https://docs.aws.amazon.com/Route53/latest/DeveloperGuide/routing-to-elb-loa
 ![route53-hostedzone-record](screenshots/route53-hostedzone-record.png)
 
 
-Let's test it by enhancing our `IngressRoute` inside [traefik-application-ingress-routes.yml](ingress/traefik-application-ingress-routes.yml):
+Let's test it by enhancing our `IngressRoute` inside [traefik-application-ingress-routes.yml](traefik/traefik-application-ingress-routes.yml):
 
 ```yaml
 apiVersion: traefik.containo.us/v1alpha1
@@ -331,7 +361,7 @@ spec:
           port: 80
 ```
 
-And apply it with `kubectl apply -f ingress/traefik-application-ingress-routes.yml`
+And apply it with `kubectl apply -f traefik/traefik-application-ingress-routes.yml`
 
 
 ## Automatically creating the Route53 A record based on the Traefik ELB in GitHub Actions
@@ -418,7 +448,7 @@ As we now have our Route53 record configuration in place to access our apps, we 
 
 https://doc.traefik.io/traefik/getting-started/install-traefik/#exposing-the-traefik-dashboard
 
-Therefore let't create a `IngressRoute` for the Traefik dashboard at [ingress/traefik-dashboard.yml](ingress/traefik-dashboard.yml):
+Therefore let't create a `IngressRoute` for the Traefik dashboard at [traefik/traefik-dashboard.yml](traefik/traefik-dashboard.yml):
 
 ```yaml
 apiVersion: traefik.containo.us/v1alpha1
@@ -439,7 +469,7 @@ spec:
 Now install it with:
 
 ```shell
-kubectl apply -f ingress/traefik-dashboard.yml
+kubectl apply -f traefik/traefik-dashboard.yml
 ```
 
 
@@ -456,7 +486,7 @@ We also directly expose our nice Traefik url traefik.tekton-argocd.de as GitHub 
         id: traefik-expose
         run: |
           echo "--- Apply Traefik-ception IngressRule"
-          kubectl apply -f ingress/traefik-dashboard.yml
+          kubectl apply -f traefik/traefik-dashboard.yml
           
           echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
           until kubectl get service/traefik -n default --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
@@ -497,7 +527,7 @@ Then open your Browser at http://localhost:8080/api/v1/namespaces/tekton-pipelin
 
 ### Expose Tekton Dashboard through Traefik
 
-So let's use Ingress with our Traefik and the nice Route53 domain & wildcard record to route from tekton.tekton-argocd.de. Simply create an Traefik `IngressRoute` as described in  [ingress/tekton-dashboard.yml](ingress/tekton-dashboard.yml):
+So let's use Ingress with our Traefik and the nice Route53 domain & wildcard record to route from tekton.tekton-argocd.de. Simply create an Traefik `IngressRoute` as described in  [traefik/tekton-dashboard.yml](traefik/tekton-dashboard.yml):
 
 ```yaml
 apiVersion: traefik.containo.us/v1alpha1
@@ -516,7 +546,7 @@ spec:
           port: 9097
 ```
 
-Apply it with `kubectl apply -f ingress/tekton-dashboard.yml` and you should be able to access the Tekton dashboard already at http://tekton.tekton-argocd.de:
+Apply it with `kubectl apply -f traefik/tekton-dashboard.yml` and you should be able to access the Tekton dashboard already at http://tekton.tekton-argocd.de:
 
 ![tekton-dashboard-traefik](screenshots/tekton-dashboard-traefik.png)
 
@@ -1437,7 +1467,7 @@ http://localhost:8080
 
 ## Expose Tekton Trigger API publicly through Traefik
 
-Let's use our Ingress with Traefik and the nice Route53 domain & wildcard record to route from gitlab-listener.tekton-argocd.de. Simply create an Traefik `IngressRoute` as described in  [ingress/gitlab-listener.yml](ingress/gitlab-listener.yml):
+Let's use our Ingress with Traefik and the nice Route53 domain & wildcard record to route from gitlab-listener.tekton-argocd.de. Simply create an Traefik `IngressRoute` as described in  [traefik/gitlab-listener.yml](traefik/gitlab-listener.yml):
 
 ```yaml
 apiVersion: traefik.containo.us/v1alpha1
@@ -1455,7 +1485,7 @@ spec:
           port: 8080
 ```
 
-Apply it with `kubectl apply -f ingress/gitlab-listener.yml` and it should be ready for access at http://gitlab-listener.tekton-argocd.de
+Apply it with `kubectl apply -f traefik/gitlab-listener.yml` and it should be ready for access at http://gitlab-listener.tekton-argocd.de
 
 
 
@@ -1482,7 +1512,7 @@ Finally we can implement all this inside our GitHub Action workflow [.github/wor
       - name: Expose Tekton Triggers EventListener as Traefik IngressRoute & testdrive Trigger
         run: |
           echo "--- Apply Tekton EventListener Traefik IngressRoute"
-          kubectl apply -f ingress/gitlab-listener.yml
+          kubectl apply -f traefik/gitlab-listener.yml
 
           echo "--- Testdrive Trigger via curl"
           curl -v \
@@ -2139,13 +2169,13 @@ https://argo-cd.readthedocs.io/en/stable/operator-manual/ingress/#ingress-config
 > There are several ways how Ingress can be configured
 
 
-So let's use Ingress with our Traefik and the nice Route53 domain & wildcard record to route from argocd.tekton-argocd.de. Simply create an Traefik `IngressRoute` as described in  [ingress/argocd-dashboard.yml](ingress/argocd-dashboard.yml):
+So let's use Ingress with our Traefik and the nice Route53 domain & wildcard record to route from argocd.tekton-argocd.de. Simply create an Traefik `IngressRoute` as described in  [traefik/argocd-dashboard.yml](traefik/argocd-dashboard.yml):
 
 > As of writing the exact `IngressRoute` from the docs produces an error:
 
 ```shell
-$ kubectl apply -f ingress/argocd-dashboard.yml
-error: error validating "ingress/argocd-dashboard.yml": error validating data: ValidationError(IngressRoute.spec.tls.options): missing required field "name" in us.containo.traefik.v1alpha1.IngressRoute.spec.tls.options; if you choose to ignore these errors, turn validation off with --validate=false
+$ kubectl apply -f traefik/argocd-dashboard.yml
+error: error validating "traefik/argocd-dashboard.yml": error validating data: ValidationError(IngressRoute.spec.tls.options): missing required field "name" in us.containo.traefik.v1alpha1.IngressRoute.spec.tls.options; if you choose to ignore these errors, turn validation off with --validate=false
 ```
 
 See https://github.com/argoproj/argo-cd/pull/8951
@@ -2180,7 +2210,7 @@ spec:
 
 With this approach we also don't need to `kubectl patch svc argocd-server -n argocd -p '{"spec": {"type": "LoadBalancer"}}'` to use a `LoadBalancer`, which provisions an AWS ELB (incl. additional costs).
 
-Apply it with `kubectl apply -f ingress/argocd-dashboard.yml`. Now ArgoCD should be accessible via http://argocd.tekton-argocd.de
+Apply it with `kubectl apply -f traefik/argocd-dashboard.yml`. Now ArgoCD should be accessible via http://argocd.tekton-argocd.de
 
 
 ## Why Kustomize is a great way to manage the ArgoCD installation & custom configuration
@@ -2220,7 +2250,7 @@ Adopting this to our use case, we need to switch our ArgoCD installation from si
 
 We slightly enhance the `kustomization.yaml` proposed in the docs and create it inside [argocd/install/kustomization.yaml](argocd/install/kustomization.yaml):
 
-```yaml
+```
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
@@ -2363,7 +2393,7 @@ We should also configure a GitHub Actions environment for our ArgoCD dashboard (
         id: dashboard-expose
         run: |
           echo "--- Expose ArgoCD Dashboard via K8s Service"
-          kubectl apply -f ingress/argocd-dashboard.yml
+          kubectl apply -f traefik/argocd-dashboard.yml
 
           echo "--- Create GitHub environment var"
           DASHBOARD_HOST="https://argocd.$ROUTE53_DOMAIN_NAME"
@@ -3183,7 +3213,7 @@ So how do we accomplish this?
 
 In our full Tekton / Argo architecture we have the Tekton Triggers EventListener first. Here we need to extract the `branch name` from the GitLab WebHook event json (we have an example in [gitlab-push-test-event.json](tekton/triggers/gitlab-push-test-event.json)). The `branch name` could be found in `ref` field:
 
-```json
+```
 {
   "object_kind": "push",
   "event_name": "push",
@@ -3286,7 +3316,7 @@ The full Task `switch-config-repository-branch` using `git-cli` in the [pipeline
 
 Now that we have our `branch name` extracted via Tekton Triggers CEL interceptor and available for the Pipeline as a parameter, we should add it to our application's `Deployment` and `Service` manifests.
 
-Therefore our [replace-image-name-with-yq.yml](tekton/tasks/replace-yaml-value-with-yq.yml) needs to be redesigned, since right now it only replaces the `image` tag. So first rename it to `replace-yaml-value-with-yq.yml` and then we may start in our [pipeline.yml](tekton/pipelines/pipeline.yml) to see what interface our task should have:
+Therefore our [replace-image-name-with-yq.yml](https://github.com/codecentric/tekton-catalog/blob/main/task/replace-yaml-value-with-yq/0.1/replace-yaml-values-with-yq.yaml) needs to be redesigned, since right now it only replaces the `image` tag. So first rename it to `replace-yaml-value-with-yq.yml` and then we may start in our [pipeline.yml](tekton/pipelines/pipeline.yml) to see what interface our task should have:
 
 ```yaml
    - name: replace-deployment-name-branch-image
@@ -3340,7 +3370,7 @@ which inside our [pipeline.yml](tekton/pipelines/pipeline.yml) looks like:
           value: "./deployment/service.yml"
 ```
 
-Therefore the task [replace-image-name-with-yq.yml](tekton/tasks/replace-yaml-value-with-yq.yml) was redesigned to support multiple yq expressions as array list:
+Therefore the task [replace-image-name-with-yq.yml](https://github.com/codecentric/tekton-catalog/blob/main/task/replace-yaml-value-with-yq/0.1/replace-yaml-values-with-yq.yaml) was redesigned to support multiple yq expressions as array list:
 
 ```yaml
 apiVersion: tekton.dev/v1beta1
@@ -3386,7 +3416,7 @@ spec:
 
 The `traefik-ingress-route.yml` will also be added to our application configuration repository https://gitlab.com/jonashackt/microservice-api-spring-boot-config in the `deployment` directory. So now it can be also deployed using Argo.
 
-Now we simply use our [replace-yaml-value-with-yq.yml](tekton/tasks/replace-yaml-value-with-yq.yml) a 3rd time in our pipeline:
+Now we simply use our [replace-yaml-value-with-yq.yml](https://github.com/codecentric/tekton-catalog/blob/main/task/replace-yaml-value-with-yq/0.1/replace-yaml-values-with-yq.yaml) a 3rd time in our pipeline:
 
 ```yaml
     - name: replace-ingress-name-route
@@ -3576,7 +3606,7 @@ The ArgoCD application-name should contain the feature-branch with `"$(params.PR
           value: apps2deploy
 ```
 
-This will lead to an `argocd app create` inside our [argocd-task-app-create.yml](tasks/argocd-task-app-create.yml) that uses the correct `name` and `--revision`.
+This will lead to an `argocd app create` inside our [argocd-task-app-create.yml](https://github.com/codecentric/tekton-catalog/blob/main/task/argocd-task-create-sync-wait/0.4/argocd-task-create-sync-wait.yml) that uses the correct `name` and `--revision`.
 
 Also we need to add 2 configuration flags: 
 

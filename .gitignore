@@ -1,3 +1,6 @@
+traefik/install/charts
+traefik/install/Chart.lock
+
 .DS_Store
 .idea
 *.iml
