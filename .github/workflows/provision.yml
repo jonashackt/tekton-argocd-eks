@@ -70,9 +70,8 @@ jobs:
       - name: Install Traefik via Helm
         run: |
           echo "--- Install Traefik via Helm (which is already installed in GitHub Actions environment https://github.com/actions/virtual-environments)"
-          helm repo add traefik https://helm.traefik.io/traefik
-          helm repo update
-          helm upgrade -i traefik traefik/traefik
+          helm dependency update traefik/install
+          helm upgrade -i traefik traefik/install
 
       - name: Create or update Route53 hosted zone A record to point to ELB Traefik is configured to
         run: |
@@ -114,7 +113,7 @@ jobs:
         id: traefik-expose
         run: |
           echo "--- Apply Traefik-ception IngressRule"
-          kubectl apply -f ingress/traefik-dashboard.yml
+          kubectl apply -f traefik/traefik-dashboard.yml
 
           echo "--- Wait until Loadbalancer url is present (see https://stackoverflow.com/a/70108500/4964553)"
           until kubectl get service/traefik -n default --output=jsonpath='{.status.loadBalancer}' | grep "ingress"; do : ; done
@@ -154,7 +153,7 @@ jobs:
         id: dashboard-expose
         run: |
           echo "--- Expose ArgoCD Dashboard via Traefik IngressRoute"
-          kubectl apply -f ingress/argocd-dashboard.yml
+          kubectl apply -f traefik/argocd-dashboard.yml
 
           echo "--- Create GitHub environment var"
           DASHBOARD_HOST="https://argocd.$ROUTE53_DOMAIN_NAME"
@@ -239,7 +238,7 @@ jobs:
         id: dashboard-expose
         run: |
           echo "--- Expose Tekton Dashboard via Traefik IngressRoute"
-          kubectl apply -f ingress/tekton-dashboard.yml
+          kubectl apply -f traefik/tekton-dashboard.yml
 
           echo "--- Create GitHub environment var"
           DASHBOARD_HOST="http://tekton.$ROUTE53_DOMAIN_NAME"
@@ -304,7 +303,7 @@ jobs:
       - name: Expose Tekton Triggers EventListener as Traefik IngressRoute & testdrive Trigger
         run: |
           echo "--- Apply Tekton EventListener Traefik IngressRoute"
-          kubectl apply -f ingress/gitlab-listener.yml
+          kubectl apply -f traefik/gitlab-listener.yml
 
           echo "--- Testdrive Trigger via curl"
           curl -v \
