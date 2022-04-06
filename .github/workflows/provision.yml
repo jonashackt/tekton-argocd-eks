@@ -7,6 +7,7 @@ env:
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   AWS_DEFAULT_REGION: 'eu-central-1'
   ROUTE53_DOMAIN_NAME: tekton-argocd.de
+  TEKTON_VERSION: '0.23.1'
 
 jobs:
   provision-eks-with-pulumi:
@@ -245,10 +246,10 @@ jobs:
           echo "The Tekton dashboard is accessible at $DASHBOARD_HOST - creating GitHub Environment"
           echo "::set-output name=dashboard_host::$DASHBOARD_HOST"
 
-      - name: Install Tekton CLI
+      - name: Install Tekton CLI using curl instead of homebrew to speed up the pipeline
         run: |
-          brew tap tektoncd/tools
-          brew install tektoncd/tools/tektoncd-cli
+          curl -LO "https://github.com/tektoncd/cli/releases/download/v${TEKTON_VERSION}/tkn_${TEKTON_VERSION}_Linux_x86_64.tar.gz" \
+          && tar xvzf "tkn_${TEKTON_VERSION}_Linux_x86_64.tar.gz" -C /usr/local/bin/ tkn
 
       - name: Create Tekton Task & run it with a TaskRun
         run: |
