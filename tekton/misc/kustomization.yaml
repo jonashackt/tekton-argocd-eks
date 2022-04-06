@@ -4,3 +4,4 @@ kind: Kustomization
 resources:
   - buildpacks-service-account-gitlab.yml
   - buildpacks-source-pvc.yml
+  - storage-class.yml
