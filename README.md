@@ -30,7 +30,7 @@ It is structured according to all tools used:
 │   └── Traefik IngressRoute configurations
 ├── tekton
 │   ├── install
-│   │   └── kustomization.yaml
+│   │   └── Tekton CRDs, Pipelines, Dashboard, Triggers etc. installation
 │   ├── misc
 │   │   └── ServiceAccounts, PVCs, Secrets
 │   ├── pipelines

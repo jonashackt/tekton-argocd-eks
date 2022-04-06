@@ -11,6 +11,5 @@ resources:
   - https://raw.githubusercontent.com/codecentric/tekton-catalog/main/task/argocd-task-create-sync-wait/0.4/argocd-task-create-sync-wait.yml
   - https://raw.githubusercontent.com/codecentric/tekton-catalog/main/task/gitlab-set-environment/0.1/gitlab-set-environment.yaml
   - https://raw.githubusercontent.com/codecentric/tekton-catalog/main/task/dump-workspace/0.1/dump-workspace.yaml
-  - replace-yaml-value-with-yq.yml
   - task-hello-world.yaml
   - kustomize-manifests.yml
