@@ -288,17 +288,17 @@ jobs:
 
       - name: Run Tekton Buildpacks powered Pipeline by creating PipelineRun
         run: |
+          echo "--- Housekeeping: delete old TaskRuns to prevent to many Pods errors"
+          tkn pipelinerun delete --all --keep 10 -n default --force
+
           echo "--- Trigger PipelineRun in Tekton / K8s"
           PIPELINE_RUN_NAME=$(kubectl create -f tekton/pipelines/pipeline-run.yml --output=jsonpath='{.metadata.name}')
 
           echo "--- Show Tekton PipelineRun logs"
           tkn pipelinerun logs $PIPELINE_RUN_NAME --follow
 
-          echo "--- Check if Tekton PipelineRun Failed & exit GitLab Pipeline accordingly"
+          echo "--- Check if Tekton PipelineRun Failed & exit GitHub Actions Step accordingly"
           kubectl get pipelineruns $PIPELINE_RUN_NAME --output=jsonpath='{.status.conditions[*].reason}' | grep Failed && exit 1 || exit 0
-
-          echo "--- Housekeeping: delete old TaskRuns to prevent to many Pods errors"
-          tkn pipelinerun delete --all --keep 10 -n default --force
 
       - name: Create Tekton Triggers EventListener, Trigger Secret, ServiceAccount/RoleBinding/ClusterRoleBinding
         run: |
