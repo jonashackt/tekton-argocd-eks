@@ -263,9 +263,6 @@ jobs:
           echo "--- Show TaskRun logs"
           tkn taskrun logs $TASK_RUN_NAME
 
-          echo "--- Housekeeping: delete old TaskRuns to prevent to many Pods errors"
-          tkn taskrun delete --all --keep 3 -n default --force
-
       - name: Create Secrets for GitLab Container Registry & Repository access & apply buildpacks PVC, ServiceAccount & Pipeline
         run: |
           echo "--- Create gitlab.com api token secret for Tekton Pipeline status reports"
