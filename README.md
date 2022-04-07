@@ -3628,18 +3628,6 @@ In order to enable Renovate to keep all our manifests up-to-date, we need a mech
 
 As we already use Kustomize to install and configure ArgoCD, we could use it to install all needed remote manifests for us. Kustomize is also supported by Renovate: https://docs.renovatebot.com/modules/manager/kustomize/
 
-Therefore the directory `installation` has been created and we have the following folder structure now:
-
-```
-├── argocd - here our ArgoCD instsallation and custom configuration is managed
-│   ├── argocd-cmd-params-cm-patch.yml
-│   └── kustomization.yaml
-├── tekton - all Tekton related components
-│   └── kustomization.yaml
-└── tekton-tasks - all needed Tekton Tasks (Hubs or local)
-    └── kustomization.yaml
-```
-
 Inside our GitHub Actions workflow [provision.yml](.github/workflows/provision.yml) Kustomize is used through `kubectl apply -k`:
 
 ```
@@ -3659,6 +3647,118 @@ Inside our GitHub Actions workflow [provision.yml](.github/workflows/provision.y
         run: |
           kubectl apply -k installation/tekton-tasks
 ```
+
+
+## Renovate not picking up remote versions in kustomization.yamls
+
+Sadly Renovate doesn't seem to work out of the box with our `kustomization.yaml`s - right now it simply does nothing to update Tekton, ArgoCD etc.
+
+
+
+But Renovate should somehow support Kustomize: https://docs.renovatebot.com/modules/manager/kustomize/ (they link to Kustomize docs https://github.com/kubernetes-sigs/kustomize/blob/master/examples/remoteBuild.md) - it seems that git ref references are supported.
+
+So how does this work? For example,
+
+This url inside a `kustomization.yaml`:
+
+https://github.com/kubernetes-sigs/kustomize/tree/v1.0.6/examples/multibases/dev
+
+has to be rebuild to this
+
+https://github.com/kubernetes-sigs/kustomize//examples/multibases/dev/?ref=v1.0.6
+
+which then only works inside a `kustomization.yaml`:
+
+```shell
+cat > ./kustomization.yaml <<EOF
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- https://github.com/kubernetes-sigs/kustomize//examples/multibases/dev/?ref=v1.0.6
+
+EOF
+```
+
+And then `kustomize build .` works:
+
+```
+kustomize build .
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: myapp
+  name: dev-myapp-pod
+spec:
+  containers:
+  - image: nginx:1.7.9
+    name: nginx
+```
+
+
+So how can we adapt this to the ArgoCD installation for example?
+
+[Argo install docs state](https://argo-cd.readthedocs.io/en/stable/operator-manual/installation/):
+
+https://raw.githubusercontent.com/argoproj/argo-cd/v2.3.3/manifests/install.yaml
+
+which references:
+
+https://github.com/argoproj/argo-cd/blob/master/manifests/install.yaml
+
+So does our `kustomization.yaml` look like this now?
+
+```
+cat > ./kustomization.yaml <<EOF
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+- https://github.com/argoproj/argo-cd//manifests/install.yaml?ref=v2.3.3
+
+EOF
+```
+
+But this gives us a:
+
+```
+$ kustomize build .
+Error: accumulating resources: accumulation err='accumulating resources from 'https://github.com/argoproj/argo-cd//manifests/install.yaml?ref=v2.3.3': 
+URL is a git repository': '/private/var/folders/5p/l1cc1kqd69n_qxrftgln7xdm0000gn/T/kustomize-1732093150/manifests/install.yaml' refers to file 'install.yaml'; expecting directory
+```
+
+So the problem is, when the Kustomization remote has no `kustomization.yaml`, but instead a different file like `install.yaml`.
+
+
+## Use .git ?ref=version notation to get Renovate working with remotes in kustomization.yamls
+
+Ok, so we need `kustomization.yamls` in the remote source!
+
+https://gitlab.com/MShekow/gitops-with-monitoring/-/blob/main/argocd-kustomize/kustomization.yaml
+
+With this I realized, that there are multiple directories in https://github.com/argoproj/argo-cd/tree/master/manifests featuring a `kustomization.yaml`! Which isn't really documented.
+
+But it seems that the https://github.com/argoproj/argo-cd/tree/master/manifests/cluster-install is the same package as the `install.yaml` - which is referred to as the "Standard Argo CD installation with cluster-admin access."
+
+The url that should work uses the 
+
+```yaml
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - https://github.com/argoproj/argo-cd.git/manifests/cluster-install?ref=v2.3.2
+
+## changes to config maps
+patchesStrategicMerge:
+  - argocd-cmd-params-cm-patch.yml
+
+namespace: argocd
+```
+
+
+
 
 
 
