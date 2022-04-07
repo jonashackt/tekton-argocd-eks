@@ -263,6 +263,9 @@ jobs:
           echo "--- Show TaskRun logs"
           tkn taskrun logs $TASK_RUN_NAME
 
+          echo "--- Housekeeping: delete old TaskRuns to prevent to many Pods errors"
+          tkn taskrun delete --all --keep 3 -n default --force
+
       - name: Create Secrets for GitLab Container Registry & Repository access & apply buildpacks PVC, ServiceAccount & Pipeline
         run: |
           echo "--- Create gitlab.com api token secret for Tekton Pipeline status reports"
@@ -296,6 +299,9 @@ jobs:
 
           echo "--- Check if Tekton PipelineRun Failed & exit GitLab Pipeline accordingly"
           kubectl get pipelineruns $PIPELINE_RUN_NAME --output=jsonpath='{.status.conditions[*].reason}' | grep Failed && exit 1 || exit 0
+
+          echo "--- Housekeeping: delete old TaskRuns to prevent to many Pods errors"
+          tkn pipelinerun delete --all --keep 10 -n default --force
 
       - name: Create Tekton Triggers EventListener, Trigger Secret, ServiceAccount/RoleBinding/ClusterRoleBinding
         run: |
