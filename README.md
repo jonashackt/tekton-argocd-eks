@@ -1,4 +1,4 @@
-# aws-eks-tekton-gitlab
+# tekton-argocd-eks
 [![Build Status](https://github.com/jonashackt/aws-eks-tekton-gitlab/workflows/provision/badge.svg)](https://github.com/jonashackt/aws-eks-tekton-gitlab/actions)
 [![License](http://img.shields.io/:license-mit-blue.svg)](https://github.com/jonashackt/aws-eks-tekton-gitlab/blob/master/LICENSE)
 [![renovateenabled](https://img.shields.io/badge/renovate-enabled-yellow)](https://renovatebot.com)
@@ -3743,7 +3743,7 @@ But it seems that the https://github.com/argoproj/argo-cd/tree/master/manifests/
 
 The url that should work uses the 
 
-```yaml
+```
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
