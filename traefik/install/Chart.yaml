@@ -6,4 +6,4 @@ appVersion: 0.0.0 # unused
 dependencies:
   - name: traefik
     repository: https://helm.traefik.io/traefik
-    version: 10.20.0
+    version: 10.20.1
