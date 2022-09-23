@@ -5,7 +5,7 @@
     },
     "dependencies": {
         "@pulumi/aws": "5.14.0",
-        "@pulumi/eks": "0.41.2",
+        "@pulumi/eks": "0.42.0",
         "@pulumi/pulumi": "3.40.1"
     }
 }
