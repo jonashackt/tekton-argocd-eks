@@ -173,9 +173,10 @@ jobs:
 
       - name: Install ArgoCD CLI
         run: |
-          echo "--- Add brew to PATH again, see https://github.com/actions/runner-images/issues/6283"
-          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
-          brew install argocd
+          echo "--- Since there's no brew ready to use anymore (https://github.com/actions/runner-images/issues/6283), we use the curl installation method here (see https://argo-cd.readthedocs.io/en/stable/cli_installation/#download-with-curl)"
+          curl -sSL -o argocd-linux-amd64 https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          sudo install -m 555 argocd-linux-amd64 /usr/local/bin/argocd
+          rm argocd-linux-amd64
 
       - name: Install & configure argocd-task-create-sync-and-wait
         run: |
