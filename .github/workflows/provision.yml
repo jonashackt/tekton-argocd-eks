@@ -172,7 +172,10 @@ jobs:
               --save-config --dry-run=client -o yaml | kubectl apply -f -
 
       - name: Install ArgoCD CLI
-        run: brew install argocd
+        run: |
+          echo "--- Add brew to PATH again, see https://github.com/actions/runner-images/issues/6283"
+          eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+          brew install argocd
 
       - name: Install & configure argocd-task-create-sync-and-wait
         run: |
