@@ -7,7 +7,7 @@ env:
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
   AWS_DEFAULT_REGION: 'eu-central-1'
   ROUTE53_DOMAIN_NAME: tekton-argocd.de
-  TEKTON_CLI_VERSION: '0.23.1'
+  TEKTON_CLI_VERSION: '0.28.0'
 
 jobs:
   provision-eks-with-pulumi:
@@ -28,9 +28,9 @@ jobs:
         uses: actions/checkout@master
 
       - name: Setup node env
-        uses: actions/setup-node@v3.4.1
+        uses: actions/setup-node@v3.5.1
         with:
-          node-version: '14'
+          node-version: '18'
 
       - name: Cache node_modules
         uses: actions/cache@v3
