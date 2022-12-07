@@ -1,11 +1,11 @@
 {
-    "name": "microservice-ui-nuxt-js-deployment",
+    "name": "tekton-argocd-eks-deployment",
     "devDependencies": {
         "@types/node": "16.11.60"
     },
     "dependencies": {
-        "@pulumi/aws": "5.15.0",
-        "@pulumi/eks": "0.42.0",
-        "@pulumi/pulumi": "3.40.1"
+        "@pulumi/aws": "5.21.1",
+        "@pulumi/eks": "1.0.0",
+        "@pulumi/pulumi": "3.48.0"
     }
 }
