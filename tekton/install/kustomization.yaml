@@ -6,5 +6,3 @@ resources:
   - https://github.com/tektoncd/dashboard/releases/download/v0.30.0/tekton-dashboard-release.yaml
   - https://storage.googleapis.com/tekton-releases/triggers/previous/v0.22.0/release.yaml
   - https://storage.googleapis.com/tekton-releases/triggers/previous/v0.22.0/interceptors.yaml
-
-namespace: tekton-pipelines
