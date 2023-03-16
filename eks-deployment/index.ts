@@ -10,3 +10,4 @@ const cluster = new eks.Cluster("eks-for-tekton", {
 // Export the cluster's kubeconfig.
 export const kubeconfig = cluster.kubeconfig;
 export const eksUrl = cluster.eksCluster.endpoint;
+export const clusterName = cluster.eksCluster.name;
