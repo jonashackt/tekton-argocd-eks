@@ -1,9 +1,9 @@
-apiVersion: tekton.dev/v1beta1
+apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
   generateName: buildpacks-test-pipeline-run-
 spec:
-  serviceAccountName: buildpacks-service-account-gitlab # Only needed if you set up authorization
+  #serviceAccountName: buildpacks-service-account-gitlab # Only needed if you set up authorization
   pipelineRef:
     name: buildpacks-test-pipeline
   workspaces:
@@ -33,8 +33,11 @@ spec:
     - name: PROJECT_NAME
       value: microservice-api-spring-boot
     - name: SOURCE_REVISION
-      value: 83eee2ee022cfd0b36e0ada4e1f0e973c426fb99
+      value: f83f8de4f3a2877f3d6c0725200b995ad362ba10
+      # f83f8de4f3a2877f3d6c0725200b995ad362ba10
+      # 3c4131f8566ef157244881bacc474543ef96755d
+      # 83eee2ee022cfd0b36e0ada4e1f0e973c426fb99
     - name: SOURCE_BRANCH
-      value: trigger-tekton-via-webhook
+      value: main
     - name: CONFIG_URL
       value: https://gitlab.com/jonashackt/microservice-api-spring-boot-config.git
