@@ -89,6 +89,8 @@ jobs:
 
           echo "--- Add the Amazon EBS CSI add-on"
           eksctl create addon --name aws-ebs-csi-driver --cluster $(pulumi stack output clusterName) --service-account-role-arn arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):role/AmazonEKS_EBS_CSI_DriverRole --force
+        
+        working-directory: ./eks-deployment
 
       - name: Install Traefik via Helm
         run: |
