@@ -1,9 +1,9 @@
-apiVersion: tekton.dev/v1
+apiVersion: tekton.dev/v1beta1
 kind: PipelineRun
 metadata:
   generateName: buildpacks-test-pipeline-run-
 spec:
-  #serviceAccountName: buildpacks-service-account-gitlab # Only needed if you set up authorization
+  serviceAccountName: buildpacks-service-account-gitlab # Only needed if you set up authorization
   pipelineRef:
     name: buildpacks-test-pipeline
   workspaces:
