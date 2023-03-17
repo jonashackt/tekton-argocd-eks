@@ -323,7 +323,7 @@ jobs:
           PIPELINE_RUN_NAME=$(kubectl create -f tekton/pipelines/pipeline-run.yml --output=jsonpath='{.metadata.name}')
 
           echo "--- Show Tekton PipelineRun logs"
-          tkn pipelinerun logs $PIPELINE_RUN_NAME --follow
+          tkn pipelinerun logs $PIPELINE_RUN_NAME --follow --all
 
           echo "--- Check if Tekton PipelineRun Failed & exit GitHub Actions Step accordingly"
           kubectl get pipelineruns $PIPELINE_RUN_NAME --output=jsonpath='{.status.conditions[*].reason}' | grep Failed && exit 1 || exit 0
