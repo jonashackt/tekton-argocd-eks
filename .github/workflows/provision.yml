@@ -145,7 +145,7 @@ jobs:
 
           TRAEFIK_URL="http://traefik.$ROUTE53_DOMAIN_NAME"
           echo "All Services should be accessible through Traefik Ingress at $TRAEFIK_URL - creating GitHub Environment"
-          echo "::set-output name=traefik_url::$TRAEFIK_URL"
+          echo "traefik_url=$TRAEFIK_URL" >> $GITHUB_OUTPUT
 
   install-and-run-argocd-on-eks:
     runs-on: ubuntu-latest
@@ -183,7 +183,7 @@ jobs:
           echo "--- Create GitHub environment var"
           DASHBOARD_HOST="https://argocd.$ROUTE53_DOMAIN_NAME"
           echo "The ArgoCD dashboard is accessible at $DASHBOARD_HOST - creating GitHub Environment"
-          echo "::set-output name=dashboard_host::$DASHBOARD_HOST"
+          echo "dashboard_host=$DASHBOARD_HOST" >> $GITHUB_OUTPUT
 
       - name: Create GitHub Container Registry Secret to be able to pull from ghcr.io
         run: |
@@ -272,7 +272,7 @@ jobs:
           echo "--- Create GitHub environment var"
           DASHBOARD_HOST="http://tekton.$ROUTE53_DOMAIN_NAME"
           echo "The Tekton dashboard is accessible at $DASHBOARD_HOST - creating GitHub Environment"
-          echo "::set-output name=dashboard_host::$DASHBOARD_HOST"
+          echo "dashboard_host=$DASHBOARD_HOST" >> $GITHUB_OUTPUT
 
       - name: Install Tekton CLI using curl instead of homebrew to speed up the pipeline
         run: |
