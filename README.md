@@ -3899,6 +3899,99 @@ and then re-applying it will resolve the problem.
 
 
 
+### Pods are pending forever in Tekton PipelineRuns and PersistentVolumenClaim Pending
+
+The command `k describe pvc buildpacks-source-pvc` gives the following event messages:
+
+```shell
+Name:          buildpacks-source-pvc
+Namespace:     default
+StorageClass:  gp2
+Status:        Pending
+Volume:
+Labels:        <none>
+Annotations:   volume.beta.kubernetes.io/storage-provisioner: ebs.csi.aws.com
+               volume.kubernetes.io/selected-node: ip-172-31-18-82.eu-central-1.compute.internal
+               volume.kubernetes.io/storage-provisioner: ebs.csi.aws.com
+Finalizers:    [kubernetes.io/pvc-protection]
+Capacity:
+Access Modes:
+VolumeMode:    Filesystem
+Used By:       affinity-assistant-0b3d266b91-0
+               affinity-assistant-53a7c08baf-0
+               affinity-assistant-a375f28de3-0
+               affinity-assistant-e8cb1a6e15-0
+               buildpacks-test-pipeline-run-9rz4l-fetch-repository-pod
+Events:
+  Type    Reason                Age                     From                         Message
+  ----    ------                ----                    ----                         -------
+  Normal  ExternalProvisioning  3m43s (x561 over 143m)  persistentvolume-controller  waiting for a volume to be created, either by external provisioner "ebs.csi.aws.com" or manually created by system administrator
+```
+
+The thing from Kubernetes 1.23+ on is that we need to additionally install the [Amazon EBS CSI driver](https://docs.aws.amazon.com/eks/latest/userguide/ebs-csi.html) in order to get PersistentVolumes working again.
+
+The [aws docs tell us what to do](https://docs.aws.amazon.com/eks/latest/userguide/managing-ebs-csi.html) and the [aws-ebs-csi-driver GitHub readme](https://github.com/kubernetes-sigs/aws-ebs-csi-driver/blob/master/docs/install.md#installation-1):
+
+#### Solution: Configure Amazon EBS CSI driver for working PersistentVolumes
+
+See https://docs.aws.amazon.com/eks/latest/userguide/csi-iam-role.html
+
+
+#### 1.) Install eksctl
+
+The easiest way to enable the IAM OIDC provider and create the IAM role for the EBS CSI driver is to use [eksctl](https://github.com/weaveworks/eksctl). To use `eksctl` we need to install it first. On a Mac use brew like:
+
+```shell
+brew tap weaveworks/tap
+brew install weaveworks/tap/eksctl
+```
+
+or on Linux use:
+
+```shell
+curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+sudo mv /tmp/eksctl /usr/local/bin
+```
+
+#### 2.) Enable IAM OIDC provider
+
+A prerequisite for the EBS CSI driver to work is to have an existing AWS Identity and Access Management (IAM) OpenID Connect (OIDC) provider for your cluster. This IAM OIDC provider can be enabled with the following command:
+
+```shell
+eksctl utils associate-iam-oidc-provider --region=eu-central-1 --cluster=$(pulumi stack output clusterName) --approve
+```
+
+#### 3.) Create Amazon EBS CSI driver IAM role
+
+Now having `eksctl` in place, create the IAM role:
+
+```shell
+eksctl create iamserviceaccount \
+  --name ebs-csi-controller-sa \
+  --namespace kube-system \
+  --cluster $(pulumi stack output clusterName) \
+  --attach-policy-arn arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy \
+  --approve \
+  --role-only \
+  --role-name AmazonEKS_EBS_CSI_DriverRole
+```
+
+As you can see AWS maintains a managed policy for us we can simply use (`AWS maintains a managed policy, available at ARN arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy`). Only if you use encrypted EBS drives [you need to additionally add configuration to the policy](https://github.com/kubernetes-sigs/aws-ebs-csi-driver/blob/master/docs/install.md#installation-1).
+
+The command...
+
+> ...deploys an AWS CloudFormation stack that creates an IAM role, attaches the IAM policy to it, and annotates the existing ebs-csi-controller-sa service account with the Amazon Resource Name (ARN) of the IAM role.
+
+
+#### 4.) Add the Amazon EBS CSI add-on
+
+Now we can finally add the EBS CSI add-on. Therefor we also need the AWS Account id which we can obtain by running `aws sts get-caller-identity --query Account --output text` (see https://stackoverflow.com/questions/33791069/quick-way-to-get-aws-account-number-from-the-aws-cli-tools). Now the `eksctl create addon` command looks like this:
+
+```shell
+eksctl create addon --name aws-ebs-csi-driver --cluster $(pulumi stack output clusterName) --service-account-role-arn arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):role/AmazonEKS_EBS_CSI_DriverRole --force
+```
+
+
 
 
 
