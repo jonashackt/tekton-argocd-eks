@@ -1,7 +1,7 @@
 {
     "name": "tekton-argocd-eks-deployment",
     "devDependencies": {
-        "@types/node": "18.16.4"
+        "@types/node": "20.10.5"
     },
     "dependencies": {
         "@pulumi/aws": "5.38.0",
